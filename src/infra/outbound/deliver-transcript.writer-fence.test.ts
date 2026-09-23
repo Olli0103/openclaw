@@ -102,4 +102,40 @@ describe("outbound delivery mirror writer fence", () => {
     expect(args).toMatchObject({ sessionKey: RUNNING_SESSION_KEY });
     expect(args).not.toHaveProperty("expectedWriterRunId");
   });
+
+  it("forwards payload mediaUrls instead of baking filenames into the mirrored text", async () => {
+    const mediaUrls = ["https://example.com/chart.png"];
+    await mirrorDeliveredPayloads({
+      delivery: {
+        cfg: {},
+        mirror: { agentId: "wolf", sessionKey: RUNNING_SESSION_KEY },
+      } as unknown as DeliverOutboundPayloadsCoreParams,
+      payloads: [{ text: "photo", mediaUrls }],
+      channel: "discord",
+      to: "1497965766035640391",
+    });
+
+    expect(appendedArgs()).toMatchObject({
+      text: "photo",
+      mediaUrls,
+    });
+  });
+
+  it("forwards media-only payloads without synthesizing filename text", async () => {
+    const mediaUrls = ["https://example.com/voice-note.ogg"];
+    await mirrorDeliveredPayloads({
+      delivery: {
+        cfg: {},
+        mirror: { agentId: "wolf", sessionKey: RUNNING_SESSION_KEY },
+      } as unknown as DeliverOutboundPayloadsCoreParams,
+      payloads: [{ text: "", mediaUrls }],
+      channel: "discord",
+      to: "1497965766035640391",
+    });
+
+    expect(appendedArgs()).toMatchObject({
+      text: "",
+      mediaUrls,
+    });
+  });
 });

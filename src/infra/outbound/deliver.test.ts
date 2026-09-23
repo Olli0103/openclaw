@@ -5504,7 +5504,8 @@ describe("deliverOutboundPayloads", () => {
       mocks.appendAssistantMessageToSessionTranscript,
       "append transcript",
     );
-    expect(appendOptions?.text).toBe("caption\nreport.pdf");
+    expect(appendOptions?.text).toBe("caption");
+    expect(appendOptions?.mediaUrls).toEqual([expect.stringContaining("report.pdf")]);
     expect(appendOptions?.idempotencyKey).toBe("idem-deliver-1");
     expect(appendOptions?.config).toBe(cfg);
   });

@@ -51,7 +51,8 @@ export async function mirrorDeliveredPayloads(params: {
         ? { expectedLifecycleRevision: writerFence.expectedLifecycleRevision }
         : {}),
       ...(writerFence ? { expectedWriterRunId: writerFence.expectedWriterRunId } : {}),
-      text: mirrorText,
+      text: deliveredMirror.text,
+      mediaUrls: deliveredMirror.mediaUrls.length ? deliveredMirror.mediaUrls : undefined,
       idempotencyKey: mirror.idempotencyKey,
       deliveryMirror: mirror.deliveryMirror,
       config: params.delivery.cfg,
