@@ -1,7 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import { createServer, type ServerResponse } from "node:http";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { writeOpenAiResponsesSse } from "../../test/helpers/openai-responses-sse.js";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { resetPreparedModelRuntimeSnapshotsForTest } from "../agents/prepared-model-runtime.test-support.js";
-import { makeProviderModelFixture } from "../agents/test-helpers/provider-model-fixture.js";
 import {
   resetConfigRuntimeState,
   setRuntimeConfigSnapshot,
@@ -10,41 +13,62 @@ import {
 import { resetPluginLoaderTestStateForTest } from "../plugins/loader.test-fixtures.js";
 import { clearPluginMetadataLifecycleCaches } from "../plugins/plugin-metadata-lifecycle.js";
 import { withPluginRuntimePluginScope } from "../plugins/runtime/gateway-request-scope.js";
-import { createColdPluginHermeticEnv } from "../plugins/test-helpers/cold-plugin-fixtures.js";
+import {
+  createColdPluginFixture,
+  createColdPluginHermeticEnv,
+} from "../plugins/test-helpers/cold-plugin-fixtures.js";
 import { createSyncSuiteTempRootTracker } from "../plugins/test-helpers/fs-fixtures.js";
 import { resetCommandQueueStateForTest } from "../process/command-queue.test-support.js";
 import { ensureProfileForEmail } from "../state/user-profiles.js";
 import { withEnvAsync } from "../test-utils/env.js";
-import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import type { GatewayRequestContext } from "./server-methods/types.js";
 import * as inProcessDispatch from "./server-plugin-in-process-dispatch.js";
 import { createGatewaySubagentRuntime } from "./server-plugin-subagent-runtime.js";
 
-const PLUGIN_ID = "test-completion";
-const PINNED_KEY = "sk-pinned-account";
-const OTHER_KEY = "sk-other-account";
-const BASE_URL = "http://127.0.0.1:9/v1";
+const HOST_PLUGIN_ID = "test-completion";
+const PINNED_KEY = "sk-pinned-primary";
 
 type RecordedHit = {
-  url: string;
-  authorization: string | null;
+  authorization: string | undefined;
 };
 
 function providerModel(id: string) {
-  return makeProviderModelFixture({
+  return {
     id,
-    provider: "transport",
-    api: "openai-completions",
-    baseUrl: BASE_URL,
-  });
+    name: id,
+    reasoning: false,
+    input: ["text"] as const,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 8192,
+    maxTokens: 1024,
+  };
 }
 
-function headerValue(headers: HeadersInit | undefined, name: string): string | null {
-  return new Headers(headers).get(name);
+async function waitForHit(arrival: Promise<void>, work: Promise<unknown>, label: string) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      arrival,
+      work.then((value) => {
+        throw new Error(`${label} settled before the provider request: ${JSON.stringify(value)}`);
+      }),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`${label} did not reach the local server`)),
+          8_000,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
-function authFailureResponse() {
-  return new Response(
+function writeAuthFailure(response: ServerResponse) {
+  response.writeHead(401, { "content-type": "application/json" });
+  response.end(
     JSON.stringify({
       error: {
         message: "ExpiredTokenException: The security token included in the request is expired",
@@ -52,26 +76,22 @@ function authFailureResponse() {
         code: "invalid_api_key",
       },
     }),
-    { status: 401, headers: { "content-type": "application/json" } },
   );
 }
 
-function completionResponse(text: string) {
-  const chunk = {
-    id: "transport-response",
-    object: "chat.completion.chunk",
-    model: "fallback-model",
-    choices: [{ index: 0, delta: { content: text }, finish_reason: "stop" }],
-  };
-  return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, {
-    status: 200,
-    headers: { "content-type": "text/event-stream" },
-  });
+function writeCompletion(response: ServerResponse, text: string) {
+  writeOpenAiResponsesSse(response, [
+    {
+      id: "transport-response",
+      object: "chat.completion.chunk",
+      model: "fallback-model",
+      choices: [{ index: 0, delta: { content: text }, finish_reason: "stop" }],
+    },
+  ]);
 }
 
 describe("plugin background completion transport", () => {
   afterEach(async () => {
-    vi.restoreAllMocks();
     resetCommandQueueStateForTest();
     resetConfigRuntimeState();
     await resetPreparedModelRuntimeSnapshotsForTest();
@@ -79,127 +99,147 @@ describe("plugin background completion transport", () => {
     resetPluginLoaderTestStateForTest();
   });
 
-  async function withCompletionRuntime(
-    run: (complete: () => Promise<{ text: string }>) => Promise<void>,
+  async function withLocalCompletion(
+    run: (params: {
+      complete: () => Promise<{ text: string }>;
+      hits: RecordedHit[];
+      arrivals: Array<ReturnType<typeof createDeferred>>;
+      respond: (index: number, write: (response: ServerResponse) => void) => void;
+    }) => Promise<void>,
   ) {
     const roots = createSyncSuiteTempRootTracker("plugin-complete-transport");
-    const root = roots.makeTempDir();
+    const root = fs.realpathSync(roots.makeTempDir());
+    const providerDir = path.join(root, "provider");
+    fs.mkdirSync(providerDir);
+    const fixture = createColdPluginFixture({
+      rootDir: providerDir,
+      pluginId: "isolated-complete-fixture",
+      providerId: "isolated-complete-provider",
+    });
+    fs.writeFileSync(
+      fixture.runtimeSource,
+      `module.exports = { id: ${JSON.stringify(fixture.pluginId)}, register(api) {
+        api.registerProvider({
+          id: ${JSON.stringify(fixture.providerId)}, label: "Isolated complete transport", auth: [],
+        });
+      } };`,
+    );
+    const hits: RecordedHit[] = [];
+    const pending = new Map<number, ServerResponse>();
+    const arrivals = [createDeferred(), createDeferred(), createDeferred()];
+    const server = createServer((request, response) => {
+      request.resume();
+      const index = hits.length;
+      hits.push({ authorization: request.headers.authorization });
+      pending.set(index, response);
+      arrivals[index]?.resolve();
+    });
+    const respond = (index: number, write: (response: ServerResponse) => void) => {
+      const response = pending.get(index);
+      if (!response) {
+        throw new Error(`missing provider response ${index}`);
+      }
+      write(response);
+    };
     try {
-      await withOpenClawTestState(
-        {
-          prefix: "plugin-complete-transport",
-          env: {
-            ...createColdPluginHermeticEnv(root, { bundledPluginsDir: roots.makeTempDir() }),
-            OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1",
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", () => {
+          server.removeListener("error", reject);
+          resolve();
+        });
+      });
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("transport fixture has no TCP port");
+      }
+      const cfg: OpenClawConfig = {
+        agents: {
+          defaults: { workspace: root, model: `${fixture.providerId}/fallback-model` },
+          entries: {
+            research: {
+              model: {
+                primary: `${fixture.providerId}/primary-model`,
+                fallbacks: [`${fixture.providerId}/fallback-model`],
+              },
+            },
           },
         },
-        async (state) => {
-          await state.writeAuthProfiles(
-            {
-              version: 1,
-              profiles: {
-                other: { type: "api_key", provider: "transport", key: OTHER_KEY },
-                pinned: { type: "api_key", provider: "transport", key: PINNED_KEY },
-              },
+        models: {
+          providers: {
+            [fixture.providerId]: {
+              api: "openai-completions",
+              apiKey: PINNED_KEY,
+              baseUrl: `http://127.0.0.1:${address.port}/v1`,
+              request: { allowPrivateNetwork: true },
+              models: [providerModel("primary-model"), providerModel("fallback-model")],
             },
-            "research",
-          );
-          const cfg: OpenClawConfig = {
-            agents: {
-              defaults: { workspace: state.workspaceDir, model: "transport/fallback-model" },
-              entries: {
-                research: {
-                  model: {
-                    primary: "transport/primary-model@pinned",
-                    fallbacks: ["transport/fallback-model"],
-                  },
-                },
-              },
-            },
-            models: {
-              providers: {
-                transport: {
-                  api: "openai-completions",
-                  baseUrl: BASE_URL,
-                  request: { allowPrivateNetwork: true },
-                  models: [providerModel("primary-model"), providerModel("fallback-model")],
-                },
-              },
-            },
-            plugins: { slots: { memory: "none" } },
-          };
-          setRuntimeConfigSnapshot(cfg);
-          const lifetime = new AbortController();
-          const context = { getRuntimeConfig: () => cfg } as GatewayRequestContext;
-          const complete = () =>
-            withPluginRuntimePluginScope({ pluginId: PLUGIN_ID }, () =>
-              createGatewaySubagentRuntime(() => context, {}, lifetime.signal).complete({
-                agentId: "research",
-                message: "Recover from the expired primary.",
-                timeoutMs: 15_000,
-              }),
-            );
-          try {
-            await withEnvAsync(
-              {
-                ...state.envVars,
-                OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1",
-              },
-              async () => await run(complete),
-            );
-          } finally {
-            lifetime.abort();
-          }
+          },
         },
-      );
+        plugins: {
+          load: { paths: [fixture.rootDir] },
+          slots: { memory: "none" },
+          entries: { [fixture.pluginId]: { enabled: true } },
+        },
+      };
+      setRuntimeConfigSnapshot(cfg);
+      const lifetime = new AbortController();
+      const context = { getRuntimeConfig: () => cfg } as GatewayRequestContext;
+      const complete = () =>
+        withPluginRuntimePluginScope({ pluginId: HOST_PLUGIN_ID }, () =>
+          createGatewaySubagentRuntime(() => context, {}, lifetime.signal).complete({
+            agentId: "research",
+            message: "Recover from the expired primary.",
+            timeoutMs: 15_000,
+          }),
+        );
+      try {
+        await withEnvAsync(
+          {
+            ...createColdPluginHermeticEnv(root, { bundledPluginsDir: roots.makeTempDir() }),
+            OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1",
+            OPENCLAW_STATE_DIR: path.join(root, "state"),
+            HTTP_PROXY: undefined,
+            HTTPS_PROXY: undefined,
+            http_proxy: undefined,
+            https_proxy: undefined,
+            ALL_PROXY: undefined,
+            all_proxy: undefined,
+            NO_PROXY: "127.0.0.1,localhost,::1",
+          },
+          async () => await run({ complete, hits, arrivals, respond }),
+        );
+      } finally {
+        lifetime.abort();
+      }
     } finally {
+      for (const response of pending.values()) {
+        if (!response.destroyed && !response.writableEnded) {
+          response.destroy();
+        }
+      }
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
       roots.cleanup();
     }
   }
 
   it("recovers through isolated inference without substituting another account for the pinned primary", async () => {
-    const hits: RecordedHit[] = [];
-    const first = createDeferred();
-    const second = createDeferred();
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-      hits.push({
-        url: String(input),
-        authorization: headerValue(init?.headers, "authorization"),
-      });
-      if (hits.length === 1) {
-        first.resolve();
-        return authFailureResponse();
-      }
-      second.resolve();
-      return completionResponse("fallback-ok");
-    });
-    await withCompletionRuntime(async (complete) => {
+    await withLocalCompletion(async ({ complete, hits, arrivals, respond }) => {
       const recovered = complete();
-      await first.promise;
+      await waitForHit(arrivals[0]!.promise, recovered, "primary recovery");
       expect(hits[0]?.authorization).toBe(`Bearer ${PINNED_KEY}`);
-      await second.promise;
+      respond(0, writeAuthFailure);
+      await waitForHit(arrivals[1]!.promise, recovered, "fallback recovery");
+      respond(1, (response) => writeCompletion(response, "fallback-ok"));
       await expect(recovered).resolves.toEqual({ text: "fallback-ok" });
       expect(hits).toHaveLength(2);
     });
   });
 
   it("rejects expired caller authority before the fallback request", async () => {
-    const hits: RecordedHit[] = [];
-    const first = createDeferred();
-    const gate = createDeferred();
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
-      hits.push({
-        url: String(_input),
-        authorization: headerValue(init?.headers, "authorization"),
-      });
-      if (hits.length === 1) {
-        first.resolve();
-        await gate.promise;
-        return authFailureResponse();
-      }
-      return completionResponse("must-not-run");
-    });
-    await withCompletionRuntime(async (complete) => {
+    await withLocalCompletion(async ({ complete, hits, arrivals, respond }) => {
       const profile = ensureProfileForEmail("completion-transport@example.com");
       let pending: Promise<{ text: string }> | undefined;
       await inProcessDispatch.withOperatorToolGatewayAuthority(
@@ -214,12 +254,12 @@ describe("plugin background completion transport", () => {
         },
         async () => {
           pending = complete();
-          await first.promise;
+          await waitForHit(arrivals[0]!.promise, pending, "expired-authority primary");
         },
       );
       expect(hits).toHaveLength(1);
       expect(hits[0]?.authorization).toBe(`Bearer ${PINNED_KEY}`);
-      gate.resolve();
+      respond(0, writeAuthFailure);
       await expect(pending).rejects.toThrow(/operator tool invocation authority expired/i);
       expect(hits).toHaveLength(1);
     });
