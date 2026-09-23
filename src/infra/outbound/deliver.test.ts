@@ -76,6 +76,10 @@ const mocks = vi.hoisted(() => ({
     target: { sessionId: "x", sessionKey: "x", storePath: "/tmp/sessions.json" },
     messageId: "m",
   })),
+  createManagedOutgoingMediaBlocks: vi.fn(async () => [] as Array<Record<string, unknown>>),
+  removeManagedOutgoingMediaBlocks: vi.fn(async () => undefined),
+  attachManagedOutgoingMediaToMessage: vi.fn(() => true),
+  getAgentScopedMediaLocalRootsForSources: vi.fn(() => ["/tmp"]),
 }));
 const hookMocks = vi.hoisted(() => ({
   runner: {
@@ -177,6 +181,26 @@ vi.mock("../../config/sessions/transcript.js", async () => {
   return {
     ...actual,
     appendAssistantMessageToSessionTranscript: mocks.appendAssistantMessageToSessionTranscript,
+  };
+});
+vi.mock("../../gateway/managed-image-attachments.js", async () => {
+  const actual = await vi.importActual<typeof import("../../gateway/managed-image-attachments.js")>(
+    "../../gateway/managed-image-attachments.js",
+  );
+  return {
+    ...actual,
+    createManagedOutgoingMediaBlocks: mocks.createManagedOutgoingMediaBlocks,
+    removeManagedOutgoingMediaBlocks: mocks.removeManagedOutgoingMediaBlocks,
+    attachManagedOutgoingMediaToMessage: mocks.attachManagedOutgoingMediaToMessage,
+  };
+});
+vi.mock("../../media/local-roots.js", async () => {
+  const actual = await vi.importActual<typeof import("../../media/local-roots.js")>(
+    "../../media/local-roots.js",
+  );
+  return {
+    ...actual,
+    getAgentScopedMediaLocalRootsForSources: mocks.getAgentScopedMediaLocalRootsForSources,
   };
 });
 vi.mock("../../plugins/hook-runner-global.js", () => ({
@@ -525,6 +549,10 @@ describe("deliverOutboundPayloads", () => {
     resetDiagnosticEventsForTest();
     setActivePluginRegistry(defaultRegistry);
     vi.clearAllMocks();
+    mocks.createManagedOutgoingMediaBlocks.mockResolvedValue([]);
+    mocks.removeManagedOutgoingMediaBlocks.mockResolvedValue(undefined);
+    mocks.attachManagedOutgoingMediaToMessage.mockReturnValue(true);
+    mocks.getAgentScopedMediaLocalRootsForSources.mockReturnValue(["/tmp"]);
     hookMocks.runner.hasHooks.mockReturnValue(false);
     hookMocks.runner.runMessageSending.mockResolvedValue(undefined);
     hookMocks.runner.runReplyPayloadSending.mockImplementation(async (event) => ({
