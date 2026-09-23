@@ -15,6 +15,73 @@ const loadManagedAttachments = createLazyRuntimeModule(
   () => import("../../gateway/managed-image-attachments.js"),
 );
 const loadMediaLocalRoots = createLazyRuntimeModule(() => import("../../media/local-roots.js"));
+const loadSessionPaths = createLazyRuntimeModule(() => import("../../config/sessions/paths.js"));
+const loadSessionAccessor = createLazyRuntimeModule(
+  () => import("../../config/sessions/session-accessor.js"),
+);
+const loadSessionSqliteRead = createLazyRuntimeModule(
+  () => import("../../config/sessions/session-accessor.sqlite-read.js"),
+);
+const loadAssistantDisplayContent = createLazyRuntimeModule(
+  () => import("../../shared/assistant-display-content.js"),
+);
+const loadDeliveryMirrorPredicate = createLazyRuntimeModule(
+  () => import("../../shared/transcript-only-openclaw-assistant.js"),
+);
+
+async function reusePersistedDeliveryMirror(params: {
+  cfg: DeliverOutboundPayloadsCoreParams["cfg"];
+  agentId?: string;
+  sessionKey: string;
+  expectedSessionId?: string;
+  idempotencyKey: string;
+}): Promise<boolean> {
+  try {
+    const { resolveSessionStorePathCore } = await loadSessionPaths();
+    const { loadExactSessionEntry, resolveSessionEntrySelection } = await loadSessionAccessor();
+    const { findTranscriptEvent, readTranscriptEventId, readTranscriptEventMessage } =
+      await loadSessionSqliteRead();
+    const { isOpenClawDeliveryMirrorAssistantMessage } = await loadDeliveryMirrorPredicate();
+    const { attachManagedOutgoingMediaToMessage } = await loadManagedAttachments();
+    const { readAssistantDisplayContent } = await loadAssistantDisplayContent();
+    const storePath = resolveSessionStorePathCore(params.cfg.session?.store, {
+      agentId: params.agentId,
+    });
+    const scope = {
+      agentId: params.agentId,
+      sessionId: params.expectedSessionId,
+      sessionKey: params.sessionKey,
+      storePath,
+    };
+    scope.sessionKey = resolveSessionEntrySelection(scope).normalizedKey;
+    const sessionId = params.expectedSessionId ?? loadExactSessionEntry(scope)?.sessionId;
+    if (!sessionId) {
+      return false;
+    }
+    const found = await findTranscriptEvent({ ...scope, sessionId }, (event) => {
+      const message = readTranscriptEventMessage(event);
+      return (
+        message?.idempotencyKey === params.idempotencyKey &&
+        isOpenClawDeliveryMirrorAssistantMessage(message)
+      );
+    });
+    if (!found) {
+      return false;
+    }
+    const messageId = readTranscriptEventId(found.event);
+    const message = readTranscriptEventMessage(found.event);
+    if (!messageId || !message) {
+      return false;
+    }
+    const blocks = readAssistantDisplayContent(message).filter((block) => block.type !== "text");
+    if (blocks.length > 0) {
+      attachManagedOutgoingMediaToMessage({ messageId, blocks });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export async function mirrorDeliveredPayloads(params: {
   delivery: DeliverOutboundPayloadsCoreParams;
@@ -43,9 +110,23 @@ export async function mirrorDeliveredPayloads(params: {
   // Transcript mirroring is best-effort bookkeeping after platform send.
   // Keep mirror failures non-fatal so callers do not retry an already-sent payload.
   let mediaBlocks: Array<Record<string, unknown>> = [];
-  let mirrored = false;
+  let committed = false;
   try {
+    if (mirror.idempotencyKey) {
+      const reused = await reusePersistedDeliveryMirror({
+        cfg: params.delivery.cfg,
+        agentId: mirror.agentId,
+        sessionKey: mirror.sessionKey,
+        expectedSessionId: mirror.expectedSessionId,
+        idempotencyKey: mirror.idempotencyKey,
+      });
+      if (reused) {
+        return;
+      }
+    }
     const { appendAssistantMessageToSessionTranscript } = await loadTranscriptRuntime();
+    const { attachManagedOutgoingMediaToMessage } = await loadManagedAttachments();
+    const { readAssistantDisplayContent } = await loadAssistantDisplayContent();
     const mediaUrls = deliveredMirror.mediaUrls.filter((url) => url.trim());
     if (mediaUrls.length > 0) {
       try {
@@ -92,21 +173,29 @@ export async function mirrorDeliveredPayloads(params: {
       idempotencyKey: mirror.idempotencyKey,
       deliveryMirror: mirror.deliveryMirror,
       config: params.delivery.cfg,
+      onMessageCommitted: (result) => {
+        // Publication can fail after commit; cleanup must never delete owned media.
+        committed = result.appended;
+        if (!result.appended) {
+          return;
+        }
+        const committedBlocks = readAssistantDisplayContent(result.message).filter(
+          (block) => block.type !== "text",
+        );
+        const blocks = committedBlocks.length > 0 ? committedBlocks : mediaBlocks;
+        if (blocks.length > 0) {
+          attachManagedOutgoingMediaToMessage({
+            messageId: result.messageId,
+            blocks,
+          });
+        }
+      },
     });
     if (!mirrorResult.ok) {
       log.warn(
         `failed to mirror outbound delivery into session transcript; channel send already succeeded: ${mirrorResult.reason}`,
         { channel: params.channel, to: params.to, sessionKey: mirror.sessionKey },
       );
-      return;
-    }
-    mirrored = true;
-    if (mediaBlocks.length > 0) {
-      const { attachManagedOutgoingMediaToMessage } = await loadManagedAttachments();
-      attachManagedOutgoingMediaToMessage({
-        messageId: mirrorResult.messageId,
-        blocks: mediaBlocks,
-      });
     }
   } catch (err) {
     log.warn(
@@ -114,7 +203,7 @@ export async function mirrorDeliveredPayloads(params: {
       { channel: params.channel, to: params.to, sessionKey: mirror.sessionKey },
     );
   } finally {
-    if (!mirrored && mediaBlocks.length > 0) {
+    if (!committed && mediaBlocks.length > 0) {
       try {
         const { removeManagedOutgoingMediaBlocks } = await loadManagedAttachments();
         await removeManagedOutgoingMediaBlocks({ blocks: mediaBlocks, messageId: null });

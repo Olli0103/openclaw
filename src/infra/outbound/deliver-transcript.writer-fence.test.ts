@@ -8,13 +8,28 @@ import type { NormalizedOutboundPayload } from "./payloads.js";
 
 const mocks = vi.hoisted(() => ({
   // Typed with the append params so the recorded call is inspectable without a cast.
-  appendAssistantMessageToSessionTranscript: vi.fn(
-    async (_params: Record<string, unknown>) => ({ ok: true, messageId: "mirror-1" }) as const,
-  ),
+  appendAssistantMessageToSessionTranscript: vi.fn(async (params: Record<string, unknown>) => {
+    const onMessageCommitted = params.onMessageCommitted as
+      | ((result: { appended: boolean; messageId: string; message: unknown }) => void)
+      | undefined;
+    onMessageCommitted?.({
+      appended: true,
+      messageId: "mirror-1",
+      message: { openclawDisplayContent: params.displayContent },
+    });
+    return { ok: true, messageId: "mirror-1" } as const;
+  }),
   createManagedOutgoingMediaBlocks: vi.fn(async () => [] as Array<Record<string, unknown>>),
   removeManagedOutgoingMediaBlocks: vi.fn(async () => undefined),
   attachManagedOutgoingMediaToMessage: vi.fn(() => true),
   getAgentScopedMediaLocalRootsForSources: vi.fn(() => ["/tmp"]),
+  loadExactSessionEntry: vi.fn(() => undefined),
+  resolveSessionEntrySelection: vi.fn((scope: { sessionKey: string }) => ({
+    normalizedKey: scope.sessionKey,
+  })),
+  findTranscriptEvent: vi.fn(async () => null),
+  readTranscriptEventId: vi.fn(() => undefined),
+  readTranscriptEventMessage: vi.fn(() => undefined),
 }));
 
 vi.mock("../../config/sessions/transcript.runtime.js", async () => {
@@ -36,6 +51,29 @@ vi.mock("../../gateway/managed-image-attachments.js", () => ({
 vi.mock("../../media/local-roots.js", () => ({
   getAgentScopedMediaLocalRootsForSources: mocks.getAgentScopedMediaLocalRootsForSources,
 }));
+
+vi.mock("../../config/sessions/session-accessor.js", async () => {
+  const actual = await vi.importActual<typeof import("../../config/sessions/session-accessor.js")>(
+    "../../config/sessions/session-accessor.js",
+  );
+  return {
+    ...actual,
+    loadExactSessionEntry: mocks.loadExactSessionEntry,
+    resolveSessionEntrySelection: mocks.resolveSessionEntrySelection,
+  };
+});
+
+vi.mock("../../config/sessions/session-accessor.sqlite-read.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../config/sessions/session-accessor.sqlite-read.js")
+  >("../../config/sessions/session-accessor.sqlite-read.js");
+  return {
+    ...actual,
+    findTranscriptEvent: mocks.findTranscriptEvent,
+    readTranscriptEventId: mocks.readTranscriptEventId,
+    readTranscriptEventMessage: mocks.readTranscriptEventMessage,
+  };
+});
 
 const RUNNING_SESSION_KEY = "agent:wolf:discord:channel:1497965766035640391";
 const OTHER_SESSION_KEY = "agent:arthur:discord:channel:1538510183024689305";
@@ -81,15 +119,18 @@ function appendedArgs() {
 describe("outbound delivery mirror writer fence", () => {
   beforeEach(() => {
     mocks.appendAssistantMessageToSessionTranscript.mockClear();
-    mocks.appendAssistantMessageToSessionTranscript.mockResolvedValue({
-      ok: true,
-      messageId: "mirror-1",
-    } as const);
     mocks.createManagedOutgoingMediaBlocks.mockClear();
     mocks.createManagedOutgoingMediaBlocks.mockResolvedValue([]);
     mocks.removeManagedOutgoingMediaBlocks.mockClear();
     mocks.attachManagedOutgoingMediaToMessage.mockClear();
     mocks.getAgentScopedMediaLocalRootsForSources.mockClear();
+    mocks.loadExactSessionEntry.mockClear();
+    mocks.loadExactSessionEntry.mockReturnValue(undefined);
+    mocks.resolveSessionEntrySelection.mockClear();
+    mocks.findTranscriptEvent.mockClear();
+    mocks.findTranscriptEvent.mockResolvedValue(null);
+    mocks.readTranscriptEventId.mockClear();
+    mocks.readTranscriptEventMessage.mockClear();
   });
 
   it("carries the running run's fence when it mirrors into that run's own session", async () => {
@@ -204,6 +245,81 @@ describe("outbound delivery mirror writer fence", () => {
     expect(displayed).toHaveLength(1);
     expect(displayed[0]).toMatchObject({
       content: expect.arrayContaining([imageBlock]),
+    });
+  });
+
+  it("keeps committed attachments when transcript append later reports not-ok", async () => {
+    const mediaUrls = ["https://example.com/chart.png"];
+    const imageBlock = {
+      type: "image",
+      source: { type: "url", url: "https://example.test/chart.png" },
+    };
+    mocks.createManagedOutgoingMediaBlocks.mockResolvedValueOnce([imageBlock]);
+    mocks.appendAssistantMessageToSessionTranscript.mockImplementationOnce(async (params) => {
+      const onMessageCommitted = params.onMessageCommitted as
+        | ((result: { appended: boolean; messageId: string; message: unknown }) => void)
+        | undefined;
+      onMessageCommitted?.({
+        appended: true,
+        messageId: "mirror-1",
+        message: { openclawDisplayContent: params.displayContent },
+      });
+      return { ok: false, reason: "session entry touch failed" } as const;
+    });
+
+    await mirrorDeliveredPayloads({
+      delivery: {
+        cfg: {},
+        mirror: { agentId: "wolf", sessionKey: RUNNING_SESSION_KEY },
+      } as unknown as DeliverOutboundPayloadsCoreParams,
+      payloads: [{ text: "photo", mediaUrls }],
+      channel: "discord",
+      to: "1497965766035640391",
+    });
+
+    expect(mocks.attachManagedOutgoingMediaToMessage).toHaveBeenCalledWith({
+      messageId: "mirror-1",
+      blocks: [imageBlock],
+    });
+    expect(mocks.removeManagedOutgoingMediaBlocks).not.toHaveBeenCalled();
+  });
+
+  it("reuses committed attachments for a keyed delivery mirror replay", async () => {
+    const imageBlock = {
+      type: "image",
+      source: { type: "url", url: "https://example.test/chart.png" },
+    };
+    const existing = {
+      role: "assistant",
+      provider: "openclaw",
+      model: "delivery-mirror",
+      idempotencyKey: "idem-1",
+      openclawDisplayContent: [{ type: "text", text: "photo" }, imageBlock],
+    };
+    mocks.findTranscriptEvent.mockResolvedValueOnce({ event: { message: existing } });
+    mocks.readTranscriptEventId.mockReturnValue("mirror-existing");
+    mocks.readTranscriptEventMessage.mockReturnValue(existing);
+
+    await mirrorDeliveredPayloads({
+      delivery: {
+        cfg: {},
+        mirror: {
+          agentId: "wolf",
+          sessionKey: RUNNING_SESSION_KEY,
+          expectedSessionId: "sess-1",
+          idempotencyKey: "idem-1",
+        },
+      } as unknown as DeliverOutboundPayloadsCoreParams,
+      payloads: [{ text: "photo", mediaUrls: ["https://example.com/chart.png"] }],
+      channel: "discord",
+      to: "1497965766035640391",
+    });
+
+    expect(mocks.createManagedOutgoingMediaBlocks).not.toHaveBeenCalled();
+    expect(mocks.appendAssistantMessageToSessionTranscript).not.toHaveBeenCalled();
+    expect(mocks.attachManagedOutgoingMediaToMessage).toHaveBeenCalledWith({
+      messageId: "mirror-existing",
+      blocks: [imageBlock],
     });
   });
 });
