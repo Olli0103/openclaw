@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
+import { FailoverError } from "../agents/failover-error.js";
 import type { runIsolatedCompletion } from "../agents/isolated-completion.js";
 import { withGatewayToolCallerIdentity } from "../agents/tools/gateway-caller-context.js";
 import {
@@ -577,4 +578,88 @@ describe("plugin background completions", () => {
       await blockers.settled();
     },
   );
+
+  function configureResearchFallbacks() {
+    config.agents = {
+      defaults: { model: "test-provider/global-model" },
+      entries: {
+        main: { model: "test-provider/main-model" },
+        research: {
+          model: {
+            primary: "test-provider/research-model@research-profile",
+            fallbacks: ["fallback-provider/fallback-model"],
+          },
+        },
+      },
+    };
+    setRuntimeConfigSnapshot(config);
+  }
+
+  it("fails over default plugin completions to the agent's configured model.fallbacks", async () => {
+    configureResearchFallbacks();
+    isolated.mockRejectedValueOnce(
+      new FailoverError(
+        "ExpiredTokenException: The security token included in the request is expired",
+        {
+          reason: "auth",
+          provider: "test-provider",
+          model: "research-model",
+        },
+      ),
+    );
+    isolated.mockResolvedValueOnce({
+      text: "fallback-ok",
+      provider: "fallback-provider",
+      model: "fallback-model",
+      owner: { kind: "harness", id: "test-runtime" },
+    });
+    await expect(complete(createRuntime())).resolves.toEqual({ text: "fallback-ok" });
+    expect(isolated).toHaveBeenCalledTimes(2);
+    expect(isolated.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        provider: "test-provider",
+        model: "research-model",
+        authProfileId: "research-profile",
+      }),
+    );
+    expect(isolated.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        provider: "fallback-provider",
+        model: "fallback-model",
+        authProfileId: undefined,
+      }),
+    );
+    expect(isolated.mock.calls[0]?.[0].abortSignal).toBe(isolated.mock.calls[1]?.[0].abortSignal);
+  });
+
+  it("keeps explicit plugin completion overrides on a single candidate", async () => {
+    configureResearchFallbacks();
+    config.plugins = {
+      entries: {
+        [PLUGIN_ID]: {
+          subagent: { allowModelOverride: true, allowedModels: ["test-provider/override"] },
+        },
+      },
+    };
+    isolated.mockRejectedValueOnce(
+      new FailoverError(
+        "ExpiredTokenException: The security token included in the request is expired",
+        {
+          reason: "auth",
+          provider: "test-provider",
+          model: "override",
+        },
+      ),
+    );
+    await expect(complete(createRuntime(), { model: "test-provider/override" })).rejects.toThrow(
+      /ExpiredTokenException|failover/i,
+    );
+    expect(isolated).toHaveBeenCalledOnce();
+    expect(isolated.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        provider: "test-provider",
+        model: "override",
+      }),
+    );
+  });
 });
