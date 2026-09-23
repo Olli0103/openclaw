@@ -36,9 +36,14 @@ import {
 } from "./server-plugin-subagent-runtime.js";
 
 const isolated = vi.hoisted(() => vi.fn<typeof runIsolatedCompletion>());
+const normalizeProviderModelIdWithRuntime = vi.hoisted(() =>
+  vi.fn<(params: { provider: string; context: { modelId: string } }) => string | undefined>(
+    () => undefined,
+  ),
+);
 vi.mock("../agents/isolated-completion.js", () => ({ runIsolatedCompletion: isolated }));
 vi.mock("../agents/provider-model-normalization.runtime.js", () => ({
-  normalizeProviderModelIdWithRuntime: () => undefined,
+  normalizeProviderModelIdWithRuntime,
 }));
 
 const PLUGIN_ID = "test-completion";
@@ -99,6 +104,7 @@ function blockBackgroundSlots(count: number) {
 
 beforeEach(() => {
   resetCommandQueueStateForTest();
+  normalizeProviderModelIdWithRuntime.mockReset().mockImplementation(() => undefined);
   isolated.mockReset().mockImplementation(async (params) => ({
     text: `${params.agentId}:${params.provider}/${params.model}`,
     provider: params.provider,
@@ -662,4 +668,67 @@ describe("plugin background completions", () => {
       }),
     );
   });
+
+  it.each([
+    {
+      name: "default selection",
+      model: undefined as string | undefined,
+      allowOverride: false,
+    },
+    {
+      name: "explicit override",
+      model: "alias-chain/latest@work",
+      allowOverride: true,
+    },
+  ])(
+    "preserves the resolved $name and its pinned profile through chained aliases",
+    async ({ model, allowOverride }) => {
+      normalizeProviderModelIdWithRuntime.mockImplementation(
+        ({ provider, context: modelContext }) => {
+          if (provider !== "alias-chain") {
+            return undefined;
+          }
+          if (modelContext.modelId === "latest") {
+            return "release";
+          }
+          if (modelContext.modelId === "release") {
+            return "stable";
+          }
+          return undefined;
+        },
+      );
+      config.agents = {
+        defaults: { model: "test-provider/global-model" },
+        entries: {
+          main: { model: "test-provider/main-model" },
+          research: {
+            model: {
+              primary: "alias-chain/latest@work",
+              fallbacks: ["fallback-provider/fallback-model"],
+            },
+          },
+        },
+      };
+      if (allowOverride) {
+        config.plugins = {
+          entries: {
+            [PLUGIN_ID]: { subagent: { allowModelOverride: true } },
+          },
+        };
+      }
+      setRuntimeConfigSnapshot(config);
+
+      await expect(complete(createRuntime(), model ? { model } : {})).resolves.toEqual({
+        text: "research:alias-chain/release",
+      });
+      expect(isolated).toHaveBeenCalledOnce();
+      expect(isolated.mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({
+          provider: "alias-chain",
+          model: "release",
+          authProfileId: "work",
+        }),
+      );
+    },
+  );
 });

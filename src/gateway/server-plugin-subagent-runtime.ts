@@ -284,6 +284,7 @@ export function createGatewaySubagentRuntime(
                 operatorAuthority: execution.operatorAuthority,
                 abortSignal: runSignal,
                 skipAuthProfileRuntime: true,
+                requestedRouteResolution: "resolved",
                 ...(explicitOverride ? { fallbacksOverride: [] } : {}),
                 run: async (provider, model) => {
                   assertCurrent();
