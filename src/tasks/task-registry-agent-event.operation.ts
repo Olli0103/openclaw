@@ -122,6 +122,30 @@ function readSessionsYieldStatus(result: unknown): string | undefined {
   return typeof status === "string" ? status : undefined;
 }
 
+/** Coalesce a waiting progress batch without letting a yield start outlive its non-yield result. */
+export function mergeQueuedTaskAgentEventProgress(
+  previous: TaskAgentEventChange,
+  next: TaskAgentEventChange,
+): TaskAgentEventChange {
+  const patch = { ...previous.patch, ...next.patch };
+  const latestToolStart = next.patch.lastToolName ?? previous.patch.lastToolName;
+  const clearLastToolName =
+    next.patch.lastToolName === undefined &&
+    (next.clearLastToolName === true
+      ? latestToolStart === undefined || latestToolStart === "sessions_yield"
+      : previous.clearLastToolName === true);
+  if (clearLastToolName && patch.lastToolName === "sessions_yield") {
+    delete patch.lastToolName;
+  }
+  return {
+    ...next,
+    clearLastToolName,
+    toolStarts: previous.toolStarts + next.toolStarts,
+    refreshError: previous.refreshError || next.refreshError,
+    patch,
+  };
+}
+
 export function matchesTaskAgentEventTarget(task: TaskRecord, input: TaskAgentEventInput): boolean {
   return (
     matchesTaskPersistenceReceipt(task, input.expectedTask) &&
@@ -147,7 +171,12 @@ export function prepareTaskAgentEventUpdate(current: TaskRecord, input: TaskAgen
   if (change.toolStarts) {
     patch.toolUseCount = (current.toolUseCount ?? 0) + change.toolStarts;
   }
-  if (change.clearLastToolName && current.lastToolName === "sessions_yield") {
+  if (
+    change.clearLastToolName &&
+    (current.lastToolName === "sessions_yield" || patch.lastToolName === "sessions_yield")
+  ) {
+    // The start can still be waiting in this same patch. Clear that queued
+    // name too; checking only the stored row would write it back.
     patch.lastToolName = undefined;
   }
   const lastEventAt = current.lastEventAt ?? current.startedAt ?? current.createdAt;
