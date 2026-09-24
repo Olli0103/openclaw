@@ -92,7 +92,7 @@ describe("plugin background completion transport", () => {
     run: (params: {
       complete: () => Promise<{ text: string }>;
       hits: RecordedHit[];
-      arrivals: Deferred<void>[];
+      arrivals: Deferred[];
       respond: (index: number, write: (response: ServerResponse) => void) => void;
     }) => Promise<void>,
   ) {
