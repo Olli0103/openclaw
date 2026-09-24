@@ -28,6 +28,7 @@ export type TaskAgentEventChange = {
   at: number;
   toolStarts: number;
   refreshError?: boolean;
+  clearLastToolName?: boolean;
   patch: Pick<Partial<TaskRecord>, "status" | "startedAt" | "endedAt" | "lastToolName" | "error">;
 };
 
@@ -86,8 +87,39 @@ export function captureTaskAgentEventChange(
       change.toolStarts = 1;
       change.patch.lastToolName = name;
     }
+  } else if (
+    event.stream === "tool" &&
+    event.data.phase === "result" &&
+    readToolEventName(event.data) === "sessions_yield" &&
+    isUnconfirmedSessionsYieldResult(event.data)
+  ) {
+    // A start records the name before the tool returns. Only a known
+    // non-yield result proves the call never paused. A missing status stays
+    // an unverified clue instead of erasing a confirmed yield.
+    change.clearLastToolName = true;
   }
   return change;
+}
+
+function readToolEventName(data: Record<string, unknown>): string {
+  return typeof data.name === "string" ? data.name.trim() : "";
+}
+
+function isUnconfirmedSessionsYieldResult(data: Record<string, unknown>): boolean {
+  if (data.isError === true) {
+    return true;
+  }
+  const status = readSessionsYieldStatus(data.result);
+  return status !== undefined && status !== "yielded";
+}
+
+function readSessionsYieldStatus(result: unknown): string | undefined {
+  if (!isRecord(result)) {
+    return undefined;
+  }
+  const details = isRecord(result.details) ? result.details : undefined;
+  const status = details?.status ?? result.status;
+  return typeof status === "string" ? status : undefined;
 }
 
 export function matchesTaskAgentEventTarget(task: TaskRecord, input: TaskAgentEventInput): boolean {
@@ -114,6 +146,9 @@ export function prepareTaskAgentEventUpdate(current: TaskRecord, input: TaskAgen
   }
   if (change.toolStarts) {
     patch.toolUseCount = (current.toolUseCount ?? 0) + change.toolStarts;
+  }
+  if (change.clearLastToolName && current.lastToolName === "sessions_yield") {
+    patch.lastToolName = undefined;
   }
   const lastEventAt = current.lastEventAt ?? current.startedAt ?? current.createdAt;
   if (

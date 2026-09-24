@@ -111,7 +111,7 @@ describe("task-registry audit", () => {
       [
         "stale_running",
         "error",
-        "retained sessions_yield owner, not necessarily a live worker. Review the exact owner and generation, pending inputs, descendants, outstanding continuations, and parent delivery before tasks.cancel. Age, delivery, or a quiet turn does not prove the child finished.",
+        "last started tool is sessions_yield; that is not a confirmed pause. A deferred or rejected sessions_yield can leave the same name until its result arrives. Review the exact owner and generation, pending inputs, descendants, outstanding continuations, and parent delivery before tasks.cancel. Age, delivery, or a quiet turn does not prove the child finished.",
       ],
       ["stale_running", "error", "running task appears stuck"],
     ]);

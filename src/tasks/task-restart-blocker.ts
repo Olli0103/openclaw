@@ -12,7 +12,7 @@ export type ActiveTaskRestartBlocker = {
   runId?: string;
   label?: string;
   title?: string;
-  /** Set only when the stored running task is a retained sessions_yield owner. */
+  /** Set when the stored running task last started sessions_yield. The pause is not confirmed. */
   retainedYield?: "sessions_yield";
 };
 
@@ -30,5 +30,5 @@ export function formatActiveTaskRestartBlocker(task: ActiveTaskRestartBlocker): 
   if (task.retainedYield !== "sessions_yield") {
     return formatted;
   }
-  return `${formatted} retainedYield=sessions_yield. ${RETAINED_YIELD_GUIDANCE}`;
+  return `${formatted} lastTool=sessions_yield unverified. ${RETAINED_YIELD_GUIDANCE}`;
 }
