@@ -102,6 +102,7 @@ import {
 } from "./task-registry.summary.js";
 import type { TaskRecord, TaskRegistrySummary, TaskStatus } from "./task-registry.types.js";
 import type { ActiveTaskRestartBlocker } from "./task-restart-blocker.js";
+import { isRetainedYieldOwner, RETAINED_YIELD_GUIDANCE } from "./task-retained-yield-guidance.js";
 import { resolveEffectiveTaskCleanupAfter, resolveTaskCleanupAfter } from "./task-retention.js";
 export { CRON_HISTORY_KEEP_PER_JOB } from "./cron-history-retention.js";
 
@@ -660,6 +661,9 @@ export function getInspectableActiveTaskRestartBlockers(): ActiveTaskRestartBloc
     if (task.task) {
       blocker.title = task.task;
     }
+    if (isRetainedYieldOwner(task)) {
+      blocker.retainedYield = "sessions_yield";
+    }
     blockers.push(blocker);
   }
   return blockers;
@@ -763,6 +767,13 @@ function explainActiveTaskRetention(params: {
   }
   if (isBackgroundExecTask(params.task)) {
     return { decision: "retained", reason: "active_background_exec" };
+  }
+  if (isRetainedYieldOwner(params.task)) {
+    return {
+      decision: "retained",
+      reason: "backing_session_present",
+      detail: RETAINED_YIELD_GUIDANCE,
+    };
   }
   return { decision: "retained", reason: "backing_session_present" };
 }

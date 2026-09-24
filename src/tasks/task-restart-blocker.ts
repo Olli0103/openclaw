@@ -1,6 +1,7 @@
 // Shared formatting contract for restart diagnostics that report active tasks.
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import type { TaskRecord, TaskStatus } from "./task-registry.types.js";
+import { RETAINED_YIELD_GUIDANCE } from "./task-retained-yield-guidance.js";
 
 export type ActiveTaskRestartBlocker = {
   taskId: string;
@@ -11,10 +12,12 @@ export type ActiveTaskRestartBlocker = {
   runId?: string;
   label?: string;
   title?: string;
+  /** Set only when the stored running task is a retained sessions_yield owner. */
+  retainedYield?: "sessions_yield";
 };
 
 export function formatActiveTaskRestartBlocker(task: ActiveTaskRestartBlocker): string {
-  return [
+  const formatted = [
     `taskId=${task.taskId}`,
     task.runId ? `runId=${task.runId}` : null,
     `status=${task.status}`,
@@ -24,4 +27,8 @@ export function formatActiveTaskRestartBlocker(task: ActiveTaskRestartBlocker): 
   ]
     .filter((value): value is string => Boolean(value))
     .join(" ");
+  if (task.retainedYield !== "sessions_yield") {
+    return formatted;
+  }
+  return `${formatted} retainedYield=sessions_yield. ${RETAINED_YIELD_GUIDANCE}`;
 }

@@ -305,6 +305,8 @@ Task findings:
 | `missing_cleanup`         | warn       | Terminal task with no cleanup timestamp                                                                      |
 | `inconsistent_timestamps` | warn       | Timeline violation (for example ended before started)                                                        |
 
+A running task whose latest tool is `sessions_yield` still counts as `stale_running` after 30 minutes. The detail names a retained yield owner instead of a generic stuck run, and it tells the operator to review the exact owner and generation, pending inputs, descendants, outstanding continuations, and parent delivery before `openclaw tasks cancel`. Age, a delivered parent update, or a quiet turn does not prove the child finished. The audit does not cancel the task.
+
 TaskFlow findings:
 
 | Finding                   | Severity   | Trigger                                                                       |
@@ -318,6 +320,8 @@ TaskFlow findings:
 | `blocked_task_missing`    | warn       | Blocked flow points at a task id that no longer exists                        |
 | `inconsistent_timestamps` | warn       | Flow timestamps are not in chronological order                                |
 
+A running TaskFlow uses the retained-yield detail when every linked running task is a retained `sessions_yield` owner. Mixed or live linked work keeps the generic stale-flow text.
+
 ### tasks maintenance
 
 ```bash
@@ -326,6 +330,8 @@ openclaw tasks maintenance --apply [--json]
 ```
 
 Use this to preview or apply reconciliation, cleanup stamping, and pruning for tasks, TaskFlow state, and stale automation run session registry rows.
+
+A retained `sessions_yield` owner stays running when its backing session is present. The maintenance diagnostic then carries the same review note as `tasks audit`. Drain output names that owner on the restart blocker line. None of these diagnostics cancel the task or treat parent delivery as a finished child.
 
 Reconciliation is runtime-aware:
 

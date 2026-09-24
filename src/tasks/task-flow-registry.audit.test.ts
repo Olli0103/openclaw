@@ -16,7 +16,9 @@ import {
   setFlowWaiting,
 } from "./task-flow-registry.js";
 import type { TaskFlowRecord } from "./task-flow-registry.types.js";
+import { tasks } from "./task-registry-state.js";
 import type { TaskRecord } from "./task-registry.types.js";
+import { RETAINED_YIELD_GUIDANCE } from "./task-retained-yield-guidance.js";
 import {
   configureTaskFlowRegistryRuntime,
   resetTaskRegistryForTests,
@@ -242,6 +244,81 @@ describe("task-flow-registry audit", () => {
       const staleFindings = listTaskFlowAuditFindings({ now: now + 26 * 60_000 });
       expect(requireFinding(staleFindings, "missing_linked_tasks", flow.flowId).flow?.flowId).toBe(
         flow.flowId,
+      );
+    });
+  });
+
+  it("names a mirrored flow only when every linked running task is a retained yield", async () => {
+    await withTaskFlowAuditStateDir(async () => {
+      const yieldedFlow = createManagedTaskFlow({
+        ownerKey: "agent:main:main",
+        controllerId: "tests/task-flow-audit",
+        goal: "Retained yield",
+        status: "running",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      const yielded = createRunningTaskRun({
+        runtime: "subagent",
+        ownerKey: "agent:main:main",
+        scopeKind: "session",
+        parentFlowId: yieldedFlow.flowId,
+        childSessionKey: "agent:main:subagent:yield-flow",
+        runId: "task-flow-yield-owner",
+        task: "Wait after yield",
+        startedAt: 1,
+        lastEventAt: 1,
+      });
+      const yieldedStored = tasks.get(yielded.taskId);
+      if (!yieldedStored) {
+        throw new Error("expected yielded task");
+      }
+      yieldedStored.lastToolName = "sessions_yield";
+
+      const mixedFlow = createManagedTaskFlow({
+        ownerKey: "agent:main:main",
+        controllerId: "tests/task-flow-audit",
+        goal: "Mixed work",
+        status: "running",
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      const mixedYield = createRunningTaskRun({
+        runtime: "subagent",
+        ownerKey: "agent:main:main",
+        scopeKind: "session",
+        parentFlowId: mixedFlow.flowId,
+        childSessionKey: "agent:main:subagent:mixed-yield",
+        runId: "task-flow-mixed-yield",
+        task: "Yielded sibling",
+        startedAt: 1,
+        lastEventAt: 1,
+      });
+      const mixedLive = createRunningTaskRun({
+        runtime: "subagent",
+        ownerKey: "agent:main:main",
+        scopeKind: "session",
+        parentFlowId: mixedFlow.flowId,
+        childSessionKey: "agent:main:subagent:mixed-live",
+        runId: "task-flow-mixed-live",
+        task: "Live sibling",
+        startedAt: 1,
+        lastEventAt: 1,
+      });
+      const mixedYieldStored = tasks.get(mixedYield.taskId);
+      const mixedLiveStored = tasks.get(mixedLive.taskId);
+      if (!mixedYieldStored || !mixedLiveStored) {
+        throw new Error("expected mixed tasks");
+      }
+      mixedYieldStored.lastToolName = "sessions_yield";
+      mixedLiveStored.lastToolName = "read";
+
+      const findings = listTaskFlowAuditFindings({ now: 31 * 60_000 });
+      expect(requireFinding(findings, "stale_running", yieldedFlow.flowId).detail).toBe(
+        RETAINED_YIELD_GUIDANCE,
+      );
+      expect(requireFinding(findings, "stale_running", mixedFlow.flowId).detail).toBe(
+        "running TaskFlow has not advanced recently",
       );
     });
   });
