@@ -3,14 +3,61 @@ import { resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { resolveKnownModelRefMigrationTarget } from "../commands/doctor/shared/codex-route-warnings.js";
 import type { HealthCheck, HealthCheckContext, HealthFinding } from "./health-checks.js";
 
+/** One published model row: the provider id plus the model id it serves. */
+type PublishedModelCatalogRow = { provider: string; id: string };
+
 /**
- * Reads the model rows the local Gateway already published, read-only. Doctor
- * stays offline: no provider discovery runs, and an unreadable or ambiguous
- * cached catalog leaves the offline verdict untouched.
+ * Reads the rows a running local Gateway published, over the same read-only
+ * models.list transport `models list` uses. Returns undefined when no running
+ * local Gateway owns the inventory, so callers fall back to cached rows.
+ */
+async function readRunningGatewayCatalogRows(
+  ctx: HealthCheckContext,
+): Promise<readonly PublishedModelCatalogRow[] | undefined> {
+  const { callGateway, isImplicitLocalGatewayTarget } = await import("../gateway/call.js");
+  if (!(await isImplicitLocalGatewayTarget({ config: ctx.cfg }))) {
+    return undefined;
+  }
+  const explicitPort = Boolean(ctx.env?.OPENCLAW_GATEWAY_PORT?.trim());
+  const gatewayOwner = explicitPort
+    ? undefined
+    : await (
+        await import("../infra/gateway-lock.js")
+      ).readActiveGatewayLockIdentity({
+        requireInspection: true,
+      });
+  if (!explicitPort && !gatewayOwner) {
+    return undefined;
+  }
+  const { GATEWAY_SERVER_CAPS } =
+    await import("../../packages/gateway-protocol/src/server-capabilities.js");
+  const result = await callGateway<{ models: readonly { id: string; provider: string }[] }>({
+    config: ctx.cfg,
+    method: "models.list",
+    requiredCapabilities: [GATEWAY_SERVER_CAPS.PUBLISHED_MODEL_CATALOG],
+    ...(gatewayOwner ? { localPortOverride: gatewayOwner.port } : {}),
+    params: { view: "all" },
+  });
+  return result.models.map((model) => ({ provider: model.provider, id: model.id }));
+}
+
+/**
+ * Reads the published rows doctor may trust, read-only and without provider
+ * discovery: the running Gateway's inventory when one owns it, otherwise the
+ * same locally cached rows `models list` shows. An unreachable Gateway or an
+ * unreadable cache leaves the offline verdict untouched instead of guessing.
  */
 async function readPublishedModelCatalogRows(
   ctx: HealthCheckContext,
-): Promise<readonly { provider: string; id: string }[]> {
+): Promise<readonly PublishedModelCatalogRow[]> {
+  try {
+    const gatewayRows = await readRunningGatewayCatalogRows(ctx);
+    if (gatewayRows) {
+      return gatewayRows;
+    }
+  } catch {
+    // An unreachable or unsupported Gateway must not change the offline verdict.
+  }
   try {
     const { readPreparedModelCatalog } = await import("../agents/prepared-model-catalog.js");
     return await readPreparedModelCatalog({
@@ -19,11 +66,8 @@ async function readPublishedModelCatalogRows(
       ...(ctx.env ? { env: ctx.env } : {}),
       ...(ctx.cwd ? { workspaceDir: ctx.cwd } : {}),
       readOnly: true,
-      providerDiscoveryProviderIds: [],
     });
   } catch {
-    // A missing, unreadable, or ambiguous cached catalog must not change the
-    // offline verdict, so keep today's finding instead of guessing.
     return [];
   }
 }
