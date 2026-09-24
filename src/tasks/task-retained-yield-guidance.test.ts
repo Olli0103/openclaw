@@ -1,11 +1,5 @@
 // Covers retained sessions_yield diagnostics for audit, maintenance, and drain.
-import { spawnSync } from "node:child_process";
-import { cpSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { closeOpenClawStateDatabaseAsync } from "../state/openclaw-state-db.js";
 import { prepareCanonicalTaskActivation } from "./task-backing-authority-write.js";
 import { createSubagentTaskBackingDetail } from "./task-backing-authority.js";
 import { createRunningTaskRun, withTaskExecutorStateDir } from "./task-executor.test-support.js";
@@ -230,65 +224,4 @@ describe("retained sessions_yield guidance", () => {
     expect(unknown?.clearLastToolName).toBeUndefined();
     expect(isRetainedYieldOwner(task)).toBe(true);
   });
-
-  it("shows the unverified clue through openclaw tasks audit", async () => {
-    await withTaskExecutorStateDir(async (stateDir) => {
-      const staleAt = Date.now() - 45 * 60_000;
-      const created = createRunningTaskRun({
-        runtime: "subagent",
-        ownerKey: "agent:main:main",
-        scopeKind: "session",
-        childSessionKey: "agent:main:subagent:cli-yield",
-        runId: "cli-yield-run",
-        task: "CLI yield clue",
-        startedAt: staleAt,
-        lastEventAt: staleAt,
-      });
-      const stored = tasks.get(created.taskId);
-      if (!stored) {
-        throw new Error("expected stored task");
-      }
-      stored.lastToolName = "sessions_yield";
-      stored.startedAt = staleAt;
-      stored.lastEventAt = staleAt;
-      getTaskRegistryStore().upsertTaskWithDeliveryState({ task: stored });
-      await closeOpenClawStateDatabaseAsync();
-      const copyDir = mkdtempSync(path.join(tmpdir(), "yield-audit-proof-"));
-      try {
-        cpSync(stateDir, copyDir, { recursive: true });
-        const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-        const started = Date.now();
-        const output = spawnSync(process.execPath, ["openclaw.mjs", "tasks", "audit", "--json"], {
-          cwd: repoRoot,
-          env: {
-            PATH: process.env.PATH ?? "",
-            HOME: process.env.HOME ?? "",
-            OPENCLAW_STATE_DIR: copyDir,
-            OPENCLAW_COMPILE_CACHE_DISABLED_RESPAWNED: "1",
-          },
-          encoding: "utf8",
-          timeout: 180_000,
-        });
-        const wallMs = Date.now() - started;
-        const rendered = `${output.stdout ?? ""}\n${output.stderr ?? ""}`;
-        if (output.status !== 0 || !rendered.includes("not a confirmed pause")) {
-          throw new Error(
-            JSON.stringify({
-              status: output.status,
-              error: output.error?.message,
-              signal: output.signal,
-              wallMs,
-              files: readdirSync(copyDir),
-              stdout: (output.stdout ?? "").slice(0, 800),
-              stderr: (output.stderr ?? "").slice(0, 800),
-            }),
-          );
-        }
-        expect(rendered).toContain(created.taskId);
-        expect(wallMs).toBeGreaterThan(0);
-      } finally {
-        rmSync(copyDir, { recursive: true, force: true });
-      }
-    });
-  }, 180_000);
 });

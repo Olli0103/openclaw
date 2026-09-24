@@ -101,7 +101,11 @@ import {
   type TaskStatusSummary,
 } from "./task-registry.summary.js";
 import type { TaskRecord, TaskRegistrySummary, TaskStatus } from "./task-registry.types.js";
-import type { ActiveTaskRestartBlocker } from "./task-restart-blocker.js";
+import {
+  createActiveTaskRestartBlocker,
+  isTaskRestartBlocker,
+  type ActiveTaskRestartBlocker,
+} from "./task-restart-blocker.js";
 import { isRetainedYieldOwner, RETAINED_YIELD_GUIDANCE } from "./task-retained-yield-guidance.js";
 import { resolveEffectiveTaskCleanupAfter, resolveTaskCleanupAfter } from "./task-retention.js";
 export { CRON_HISTORY_KEEP_PER_JOB } from "./cron-history-retention.js";
@@ -624,16 +628,6 @@ export async function getInspectableTaskStatusSummaryReadOnly(): Promise<TaskSta
 
 configureTaskAuditTaskProvider(reconcileInspectableTasks);
 
-function isTaskRestartBlocker(task: TaskRecord): task is TaskRecord & {
-  status: ActiveTaskRestartBlocker["status"];
-} {
-  // A task that is merely queued has not started user work yet; durable queued
-  // work can survive a gateway restart and should not indefinitely block one.
-  // Likewise, stale records that still say "running" but already have endedAt
-  // are registry inconsistencies, not live restart blockers.
-  return task.status === "running" && !task.endedAt;
-}
-
 export function getInspectableActiveTaskRestartBlockers(): ActiveTaskRestartBlocker[] {
   ensureTaskRegistryReady();
   // Reconciliation can retire a blocker, never revive a non-blocker. Select first
@@ -644,27 +638,7 @@ export function getInspectableActiveTaskRestartBlockers(): ActiveTaskRestartBloc
     if (!isTaskRestartBlocker(task)) {
       continue;
     }
-    const blocker: ActiveTaskRestartBlocker = {
-      taskId: task.taskId,
-      status: task.status,
-      runtime: task.runtime,
-    };
-    if (task.taskKind) {
-      blocker.taskKind = task.taskKind;
-    }
-    if (task.runId) {
-      blocker.runId = task.runId;
-    }
-    if (task.label) {
-      blocker.label = task.label;
-    }
-    if (task.task) {
-      blocker.title = task.task;
-    }
-    if (isRetainedYieldOwner(task)) {
-      blocker.retainedYield = "sessions_yield";
-    }
-    blockers.push(blocker);
+    blockers.push(createActiveTaskRestartBlocker(task));
   }
   return blockers;
 }

@@ -81,7 +81,7 @@ registerOpenClawStateDatabaseAsyncResource({
       await Promise.allSettled(drains);
     }
     clearTaskAgentEventLineage(identity?.key);
-    clearLatestYieldCalls();
+    clearLatestYieldCalls(identity?.key);
   },
 });
 
@@ -603,6 +603,11 @@ export function enqueueTaskAgentEvent(
 ): boolean {
   let task = initialTask;
   const source = captureTaskAgentEventSource(event);
+  // An earlier listener can rotate ownership during this event's delivery.
+  // Refuse it before it can retire current calls or queued batches.
+  if (source.lifecycleGeneration !== getAgentRunLifecycleGeneration()) {
+    return false;
+  }
   const entries = pendingByTask.get(task.taskId);
   const store = getTaskRegistryStore();
   const flowStore = getTaskFlowRegistryStore();
