@@ -47,25 +47,12 @@ function providerModel(id: string): ModelDefinitionConfig {
 }
 
 async function waitForHit(arrival: Promise<void>, work: Promise<unknown>, label: string) {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      arrival,
-      work.then((value) => {
-        throw new Error(`${label} settled before the provider request: ${JSON.stringify(value)}`);
-      }),
-      new Promise<never>((_, reject) => {
-        timeout = setTimeout(
-          () => reject(new Error(`${label} did not reach the local server`)),
-          8_000,
-        );
-      }),
-    ]);
-  } finally {
-    if (timeout) {
-      clearTimeout(timeout);
-    }
-  }
+  await Promise.race([
+    arrival,
+    work.then((value) => {
+      throw new Error(`${label} settled before the provider request: ${JSON.stringify(value)}`);
+    }),
+  ]);
 }
 
 function writeAuthFailure(response: ServerResponse) {
