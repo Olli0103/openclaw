@@ -3,6 +3,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { createCoreHealthChecks } from "./doctor-core-checks.js";
+import { runCoreHealthFindingNote } from "./doctor-health-contribution-core.js";
+import { createDoctorHealthFlowContext } from "./doctor-health-contributions.test-support.js";
 import type { HealthCheck } from "./health-checks.js";
 
 const mocks = vi.hoisted(() => ({
@@ -144,6 +146,24 @@ describe("doctor model references and the running Gateway catalog", () => {
     expect(findings).toContainEqual(
       expect.objectContaining({ target: runtimeOnlyId, severity: "info" }),
     );
+    expect(mocks.loadModelCatalog).not.toHaveBeenCalled();
+  });
+
+  it("passes an explicit Gateway port through the ordinary Doctor entry point", async () => {
+    withRunningGateway();
+    mocks.readActiveGatewayLockIdentity.mockClear();
+    mocks.loadModelCatalog.mockClear();
+    mocks.callGateway.mockResolvedValue({
+      models: [{ id: "gemini-3.8-flash", provider: "google" }],
+    });
+
+    await runCoreHealthFindingNote(
+      createDoctorHealthFlowContext({ cfg, env: { OPENCLAW_GATEWAY_PORT: "18891" } }),
+      "core/doctor/model-references",
+    );
+
+    expect(mocks.callGateway).toHaveBeenCalledOnce();
+    expect(mocks.readActiveGatewayLockIdentity).not.toHaveBeenCalled();
     expect(mocks.loadModelCatalog).not.toHaveBeenCalled();
   });
 });
