@@ -159,6 +159,7 @@ const CORE_RELOAD_POLICIES: ReloadPolicy[] = [
       "gateway.controlUi.enabled",
       "gateway.controlUi.environment",
       "gateway.controlUi.communityInvite",
+      "gateway.controlUi.newSessionModelDefaults",
       "gateway.controlUi.github",
       "gateway.controlUi.sessionObserver",
       "gateway.controlUi.embedSandbox",
@@ -484,6 +485,9 @@ function isInspectableChannelAccount(params: {
 }): boolean {
   try {
     if (!params.plugin.config.listAccountIds(params.config).includes(params.accountId)) {
+      return false;
+    }
+    if (!params.plugin.config.inspectAccount && params.plugin.config.resolveAccountAsync) {
       return false;
     }
     const inspectAccount =
