@@ -1059,4 +1059,17 @@ describe("CORE_HEALTH_CHECKS", () => {
       expect(findings).not.toContainEqual(expect.objectContaining({ target }));
     }
   });
+
+  it("stops reporting a model the Gateway publishes as absent offline", async () => {
+    const check = getCheck(createCoreHealthChecks(), "core/doctor/model-references");
+    const cfg: OpenClawConfig = {
+      agents: { defaults: { model: { fallbacks: ["google/gemini-3.8-flash"] } } },
+    };
+    // The neighbouring test already pins the offline verdict; once the Gateway
+    // publishes that id, the misleading "not in the local catalog" advice is gone.
+    mocks.loadModelCatalog.mockResolvedValueOnce([{ provider: "google", id: "gemini-3.8-flash" }]);
+    await expect(check.detect({ mode: "doctor", runtime, cfg })).resolves.not.toContainEqual(
+      expect.objectContaining({ target: "google/gemini-3.8-flash" }),
+    );
+  });
 });
