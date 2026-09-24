@@ -7,26 +7,25 @@ import type { HealthCheck, HealthCheckContext, HealthFinding } from "./health-ch
 type PublishedModelCatalogRow = { provider: string; id: string };
 
 /**
- * Reads the rows a running local Gateway published, over the same read-only
- * models.list transport `models list` uses. Returns undefined when no running
- * local Gateway owns the inventory, so callers fall back to cached rows.
+ * Reads the rows a selected Gateway published, over the same read-only
+ * models.list transport `models list` uses. Returns undefined only when the
+ * target is local and no Gateway owns it, so callers can use offline rows.
  */
 async function readRunningGatewayCatalogRows(
   ctx: HealthCheckContext,
 ): Promise<readonly PublishedModelCatalogRow[] | undefined> {
   const { callGateway, isImplicitLocalGatewayTarget } = await import("../gateway/call.js");
-  if (!(await isImplicitLocalGatewayTarget({ config: ctx.cfg }))) {
-    return undefined;
-  }
+  const localTarget = await isImplicitLocalGatewayTarget({ config: ctx.cfg });
   const explicitPort = Boolean(ctx.env?.OPENCLAW_GATEWAY_PORT?.trim());
-  const gatewayOwner = explicitPort
-    ? undefined
-    : await (
-        await import("../infra/gateway-lock.js")
-      ).readActiveGatewayLockIdentity({
-        requireInspection: true,
-      });
-  if (!explicitPort && !gatewayOwner) {
+  const gatewayOwner =
+    !localTarget || explicitPort
+      ? undefined
+      : await (
+          await import("../infra/gateway-lock.js")
+        ).readActiveGatewayLockIdentity({
+          requireInspection: true,
+        });
+  if (localTarget && !explicitPort && !gatewayOwner) {
     return undefined;
   }
   const { GATEWAY_SERVER_CAPS } =
@@ -42,10 +41,9 @@ async function readRunningGatewayCatalogRows(
 }
 
 /**
- * Reads the published rows doctor may trust, read-only and without provider
- * discovery: the running Gateway's inventory when one owns it, otherwise the
- * same locally cached rows `models list` shows. An unreachable Gateway or an
- * unreadable cache leaves the offline verdict untouched instead of guessing.
+ * Reads the published rows Doctor may trust, read-only and without provider
+ * discovery. An unowned local target can use offline rows; a selected Gateway
+ * owns its own failure, so an unreachable one leaves the offline verdict.
  */
 async function readPublishedModelCatalogRows(
   ctx: HealthCheckContext,
@@ -56,7 +54,8 @@ async function readPublishedModelCatalogRows(
       return gatewayRows;
     }
   } catch {
-    // An unreachable or unsupported Gateway must not change the offline verdict.
+    // Do not replace a failed selected Gateway with a different local inventory.
+    return [];
   }
   try {
     const { readPreparedModelCatalog } = await import("../agents/prepared-model-catalog.js");

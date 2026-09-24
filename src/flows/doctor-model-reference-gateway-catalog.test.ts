@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   loadModelCatalog: vi.fn(async () => [] as readonly { provider: string; id: string }[]),
   callGateway: vi.fn(),
   isImplicitLocalGatewayTarget: vi.fn(async () => false),
+  readActiveGatewayLockIdentity: vi.fn(async () => undefined),
   detectExtraGatewayServiceIssues: vi.fn(async () => []),
   extraGatewayServiceToHealthFinding: vi.fn(() => ({})),
   extraGatewayServiceToRepairEffects: vi.fn(() => []),
@@ -33,6 +34,10 @@ vi.mock("../claws/doctor.js", () => ({
 vi.mock("../gateway/call.js", () => ({
   callGateway: mocks.callGateway,
   isImplicitLocalGatewayTarget: mocks.isImplicitLocalGatewayTarget,
+}));
+
+vi.mock("../infra/gateway-lock.js", () => ({
+  readActiveGatewayLockIdentity: mocks.readActiveGatewayLockIdentity,
 }));
 
 const runtime = { log() {}, error() {}, exit() {} };
@@ -97,7 +102,7 @@ describe("doctor model references and the running Gateway catalog", () => {
   });
 
   it("falls back to cached rows when no local Gateway owns the catalog", async () => {
-    mocks.isImplicitLocalGatewayTarget.mockResolvedValue(false);
+    mocks.isImplicitLocalGatewayTarget.mockResolvedValue(true);
     mocks.callGateway.mockReset();
     mocks.loadModelCatalog.mockReset();
     mocks.loadModelCatalog.mockResolvedValue([{ provider: "google", id: "gemini-3.8-flash" }]);
@@ -107,5 +112,38 @@ describe("doctor model references and the running Gateway catalog", () => {
     expect(findings).not.toContainEqual(expect.objectContaining({ target: runtimeOnlyId }));
     expect(mocks.callGateway).not.toHaveBeenCalled();
     expect(mocks.loadModelCatalog).toHaveBeenCalledOnce();
+  });
+
+  it("reads a configured remote Gateway instead of rebuilding local rows", async () => {
+    mocks.isImplicitLocalGatewayTarget.mockResolvedValue(false);
+    mocks.callGateway.mockReset();
+    mocks.loadModelCatalog.mockClear();
+    mocks.callGateway.mockResolvedValue({
+      models: [{ id: "gemini-3.8-flash", provider: "google" }],
+    });
+
+    const findings = await modelReferenceCheck().detect({ mode: "doctor", runtime, cfg });
+
+    expect(findings).not.toContainEqual(expect.objectContaining({ target: runtimeOnlyId }));
+    expect(mocks.callGateway).toHaveBeenCalledOnce();
+    expect(mocks.loadModelCatalog).not.toHaveBeenCalled();
+  });
+
+  it("keeps the offline verdict when a selected Gateway cannot answer", async () => {
+    withRunningGateway();
+    mocks.loadModelCatalog.mockClear();
+    mocks.callGateway.mockRejectedValue(new Error("gateway unavailable"));
+
+    const findings = await modelReferenceCheck().detect({
+      mode: "doctor",
+      runtime,
+      cfg,
+      env: { OPENCLAW_GATEWAY_PORT: "18789" },
+    });
+
+    expect(findings).toContainEqual(
+      expect.objectContaining({ target: runtimeOnlyId, severity: "info" }),
+    );
+    expect(mocks.loadModelCatalog).not.toHaveBeenCalled();
   });
 });
