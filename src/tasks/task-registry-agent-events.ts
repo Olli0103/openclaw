@@ -58,6 +58,11 @@ import {
   taskRegistryLog,
   tasks,
 } from "./task-registry-state.js";
+import {
+  captureLatestYieldCallId,
+  clearLatestYieldCalls,
+  forgetLatestYieldCall,
+} from "./task-registry-yield-call-tracker.js";
 import { getTaskRegistryStore } from "./task-registry.store.js";
 import { getTaskRunOwner } from "./task-run-owner.js";
 
@@ -76,6 +81,7 @@ registerOpenClawStateDatabaseAsyncResource({
       await Promise.allSettled(drains);
     }
     clearTaskAgentEventLineage(identity?.key);
+    clearLatestYieldCalls();
   },
 });
 
@@ -645,6 +651,7 @@ export function enqueueTaskAgentEvent(
   }
   const matching = [...(pendingByTask.get(task.taskId) ?? [])].filter(matches);
   if (matching.some((entry) => entry.input.change.kind === "terminal")) {
+    forgetLatestYieldCall(task.taskId);
     return false;
   }
   const lastAcceptedAt = matching.reduce(
@@ -652,10 +659,12 @@ export function enqueueTaskAgentEvent(
     task.lastEventAt ?? task.startedAt ?? task.createdAt,
   );
   const backing = task.backing;
+  const latestYieldCallId = captureLatestYieldCallId(task, source, event);
   const change = captureTaskAgentEventChange(
     task,
     event,
     !getTaskRunOwner(task) && !(task.runtime === "subagent" && backing?.runtime === "subagent"),
+    latestYieldCallId,
   );
   const needsPersistence =
     event.stream === "lifecycle" ||

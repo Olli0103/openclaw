@@ -44,6 +44,7 @@ export function captureTaskAgentEventChange(
   task: Pick<TaskRecord, "runtime">,
   event: AgentEventPayload,
   projectTerminal: boolean,
+  latestYieldCallId?: string,
 ): TaskAgentEventChange | undefined {
   const change: TaskAgentEventChange = { kind: "progress", at: event.ts, toolStarts: 0, patch: {} };
   if (event.stream === "lifecycle") {
@@ -91,6 +92,8 @@ export function captureTaskAgentEventChange(
     event.stream === "tool" &&
     event.data.phase === "result" &&
     readToolEventName(event.data) === "sessions_yield" &&
+    readToolCallId(event.data) === latestYieldCallId &&
+    latestYieldCallId !== undefined &&
     isUnconfirmedSessionsYieldResult(event.data)
   ) {
     // A start records the name before the tool returns. Only a known
@@ -103,6 +106,11 @@ export function captureTaskAgentEventChange(
 
 function readToolEventName(data: Record<string, unknown>): string {
   return typeof data.name === "string" ? data.name.trim() : "";
+}
+
+function readToolCallId(data: Record<string, unknown>): string | undefined {
+  const id = typeof data.toolCallId === "string" ? data.toolCallId.trim() : "";
+  return id || undefined;
 }
 
 function isUnconfirmedSessionsYieldResult(data: Record<string, unknown>): boolean {

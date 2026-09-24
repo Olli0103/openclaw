@@ -67,14 +67,16 @@ function emitYield(
   runId: string,
   phase: "start" | "result",
   status?: "deferred" | "yielded" | "error",
+  toolCallId = "yield-1",
 ) {
   queueTool(
     runId,
     phase === "start"
-      ? { phase, name: "sessions_yield" }
+      ? { phase, name: "sessions_yield", toolCallId }
       : {
           phase,
           name: "sessions_yield",
+          toolCallId,
           isError: status === "error",
           result: { details: { status } },
         },
@@ -199,6 +201,53 @@ describe("sessions_yield event-queue clearing", () => {
         holder.release();
         await holder.joined;
       }
+    });
+  });
+
+  it("keeps a newer same-name yield when an older call returns deferred", async () => {
+    await withOpenClawTestState({ layout: "state-only" }, async () => {
+      const task = createRunningToolTask("yield-overlap", "Keep the newer yield");
+      const context = captureOpenClawStateWorkerContext();
+      const holder = holdCoordinator(
+        context.admission.databasePath,
+        context.coordinatorRuntime,
+        10_000,
+      );
+      try {
+        await holder.ready;
+        emitYield(task.runId!, "start", undefined, "older");
+        emitYield(task.runId!, "start", undefined, "newer");
+        emitYield(task.runId!, "result", "deferred", "older");
+        emitYield(task.runId!, "result", "yielded", "newer");
+        holder.release();
+        await holder.joined;
+        await joinEvents();
+        const durable = loadTaskRegistryStateFromSqliteReadOnly().tasks.get(task.taskId);
+        expect(durable?.lastToolName).toBe("sessions_yield");
+        expect(durable?.toolUseCount).toBe(2);
+      } finally {
+        holder.release();
+        await holder.joined;
+      }
+    });
+  });
+
+  it("keeps a committed newer yield when the older result arrives later", async () => {
+    await withOpenClawTestState({ layout: "state-only" }, async () => {
+      const task = createRunningToolTask("yield-overlap-committed", "Keep a committed newer yield");
+      emitYield(task.runId!, "start", undefined, "older");
+      await taskPublication(task.taskId, (current) => current.toolUseCount === 1);
+      await joinEvents();
+      emitYield(task.runId!, "start", undefined, "newer");
+      await taskPublication(task.taskId, (current) => current.toolUseCount === 2);
+      await joinEvents();
+      emitYield(task.runId!, "result", "deferred", "older");
+      await joinEvents();
+      emitYield(task.runId!, "result", "yielded", "newer");
+      await joinEvents();
+      const durable = loadTaskRegistryStateFromSqliteReadOnly().tasks.get(task.taskId);
+      expect(durable?.lastToolName).toBe("sessions_yield");
+      expect(durable?.toolUseCount).toBe(2);
     });
   });
 });

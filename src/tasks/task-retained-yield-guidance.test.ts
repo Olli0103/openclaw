@@ -174,11 +174,13 @@ describe("retained sessions_yield guidance", () => {
           data: {
             phase: "result",
             name: "sessions_yield",
+            toolCallId: "yield-1",
             isError: result.details.status === "error",
             result,
           },
         },
         false,
+        "yield-1",
       );
       expect(change?.clearLastToolName).toBe(true);
       const update = change
@@ -202,11 +204,13 @@ describe("retained sessions_yield guidance", () => {
         data: {
           phase: "result",
           name: "sessions_yield",
+          toolCallId: "yield-1",
           isError: false,
           result: { details: { status: "yielded" } },
         },
       },
       false,
+      "yield-1",
     );
     expect(yielded?.clearLastToolName).toBeUndefined();
     expect(isRetainedYieldOwner(task)).toBe(true);
@@ -218,9 +222,10 @@ describe("retained sessions_yield guidance", () => {
         seq: 4,
         stream: "tool",
         ts: (task.lastEventAt ?? task.createdAt) + 1,
-        data: { phase: "result", name: "sessions_yield", isError: false },
+        data: { phase: "result", name: "sessions_yield", toolCallId: "yield-1", isError: false },
       },
       false,
+      "yield-1",
     );
     expect(unknown?.clearLastToolName).toBeUndefined();
     expect(isRetainedYieldOwner(task)).toBe(true);
