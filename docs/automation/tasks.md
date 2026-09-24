@@ -305,7 +305,7 @@ Task findings:
 | `missing_cleanup`         | warn       | Terminal task with no cleanup timestamp                                                                      |
 | `inconsistent_timestamps` | warn       | Timeline violation (for example ended before started)                                                        |
 
-A running task whose latest tool is `sessions_yield` still counts as `stale_running` after 30 minutes. The detail names a retained yield owner instead of a generic stuck run, and it tells the operator to review the exact owner and generation, pending inputs, descendants, outstanding continuations, and parent delivery before `openclaw tasks cancel`. Age, a delivered parent update, or a quiet turn does not prove the child finished. The audit does not cancel the task.
+A running task whose current generation last started `sessions_yield` still counts as `stale_running` after 30 minutes. The detail names a retained yield owner instead of a generic stuck run, and it tells the operator to review the exact owner and generation, pending inputs, descendants, outstanding continuations, and parent delivery before `openclaw tasks cancel`. Age, a delivered parent update, or a quiet turn does not prove the child finished. A resumed generation does not keep the previous generation's tool name, so live follow-up work stays on the generic stuck text until that generation itself starts `sessions_yield`. The audit does not cancel the task.
 
 TaskFlow findings:
 

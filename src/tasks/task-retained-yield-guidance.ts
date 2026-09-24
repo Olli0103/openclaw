@@ -1,4 +1,5 @@
-// Shared operator note for a running task whose latest tool was sessions_yield.
+// Shared operator note for a running task whose current generation last started sessions_yield.
+// Successor activation clears the previous generation's tool name, so resumed work is not labeled.
 import type { TaskRecord } from "./task-registry.types.js";
 
 export const RETAINED_YIELD_GUIDANCE = [

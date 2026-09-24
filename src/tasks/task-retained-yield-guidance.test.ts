@@ -1,5 +1,9 @@
 // Covers retained sessions_yield diagnostics for audit, maintenance, and drain.
 import { afterEach, describe, expect, it } from "vitest";
+import { prepareCanonicalTaskActivation } from "./task-backing-authority-write.js";
+import { createSubagentTaskBackingDetail } from "./task-backing-authority.js";
+import { createRunningTaskRun, withTaskExecutorStateDir } from "./task-executor.test-support.js";
+import { tasks } from "./task-registry-state.js";
 import {
   getInspectableActiveTaskRestartBlockers,
   getTaskRegistryMaintenanceDiagnostics,
@@ -13,7 +17,7 @@ import {
 } from "./task-registry.maintenance.test-support.js";
 import type { TaskRecord } from "./task-registry.types.js";
 import { formatActiveTaskRestartBlocker } from "./task-restart-blocker.js";
-import { RETAINED_YIELD_GUIDANCE } from "./task-retained-yield-guidance.js";
+import { isRetainedYieldOwner, RETAINED_YIELD_GUIDANCE } from "./task-retained-yield-guidance.js";
 import { resetDetachedTaskLifecycleRuntimeForTests } from "./task-runtime.test-helpers.js";
 
 function makeStaleTask(overrides: Partial<TaskRecord>): TaskRecord {
@@ -90,5 +94,42 @@ describe("retained sessions_yield guidance", () => {
     expect((await runTaskRegistryMaintenance()).reconciled).toBe(0);
     expect(currentTasks.get(yielded.taskId)?.status).toBe("running");
     expect(currentTasks.get(live.taskId)?.status).toBe("running");
+  });
+
+  it("does not label a resumed generation that still had sessions_yield as its previous tool", async () => {
+    await withTaskExecutorStateDir(async () => {
+      const created = createRunningTaskRun({
+        runtime: "subagent",
+        ownerKey: "agent:main:main",
+        scopeKind: "session",
+        childSessionKey: "agent:main:subagent:resumed-yield",
+        runId: "resumed-yield-run",
+        task: "Resume after yield",
+        startedAt: 1,
+        lastEventAt: 1,
+      });
+      const stored = tasks.get(created.taskId);
+      if (!stored?.parentFlowId || !stored.childSessionKey || !stored.runId) {
+        throw new Error("expected a mirrored running task");
+      }
+      stored.lastToolName = "sessions_yield";
+      expect(isRetainedYieldOwner(stored)).toBe(true);
+
+      const prepared = prepareCanonicalTaskActivation({
+        runtime: "subagent",
+        childSessionKey: stored.childSessionKey,
+        runId: stored.runId,
+        detail: createSubagentTaskBackingDetail(2),
+        startedAt: 2,
+      });
+      if (!prepared) {
+        throw new Error("expected canonical activation");
+      }
+      expect(prepared.current.lastToolName).toBe("sessions_yield");
+      expect(prepared.next.status).toBe("running");
+      expect(prepared.next.endedAt).toBeUndefined();
+      expect(prepared.next.lastToolName).toBeUndefined();
+      expect(isRetainedYieldOwner(prepared.next)).toBe(false);
+    });
   });
 });
