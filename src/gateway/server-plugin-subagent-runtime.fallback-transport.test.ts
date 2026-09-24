@@ -10,6 +10,7 @@ import {
   setRuntimeConfigSnapshot,
   type OpenClawConfig,
 } from "../config/config.js";
+import type { ModelDefinitionConfig } from "../config/types.models.js";
 import { resetPluginLoaderTestStateForTest } from "../plugins/loader.test-fixtures.js";
 import { clearPluginMetadataLifecycleCaches } from "../plugins/plugin-metadata-lifecycle.js";
 import { withPluginRuntimePluginScope } from "../plugins/runtime/gateway-request-scope.js";
@@ -19,6 +20,7 @@ import {
 } from "../plugins/test-helpers/cold-plugin-fixtures.js";
 import { createSyncSuiteTempRootTracker } from "../plugins/test-helpers/fs-fixtures.js";
 import { resetCommandQueueStateForTest } from "../process/command-queue.test-support.js";
+import type { Deferred } from "../shared/deferred.js";
 import { ensureProfileForEmail } from "../state/user-profiles.js";
 import { withEnvAsync } from "../test-utils/env.js";
 import type { GatewayRequestContext } from "./server-methods/types.js";
@@ -32,12 +34,12 @@ type RecordedHit = {
   authorization: string | undefined;
 };
 
-function providerModel(id: string) {
+function providerModel(id: string): ModelDefinitionConfig {
   return {
     id,
     name: id,
     reasoning: false,
-    input: ["text"] as const,
+    input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 8192,
     maxTokens: 1024,
@@ -103,7 +105,7 @@ describe("plugin background completion transport", () => {
     run: (params: {
       complete: () => Promise<{ text: string }>;
       hits: RecordedHit[];
-      arrivals: Array<ReturnType<typeof createDeferred>>;
+      arrivals: Deferred<void>[];
       respond: (index: number, write: (response: ServerResponse) => void) => void;
     }) => Promise<void>,
   ) {
