@@ -36,7 +36,7 @@ type DeclarationEmitOptions = {
 
 /** Keep native Go GC slack inside the host budget; Node heap flags do not reach tsgo. */
 export function resolveNativeDeclarationCompilerEnv(
-  params: MemoryLimitParams = {},
+  params: MemoryLimitParams & { concurrentCompilers?: 1 | 2 } = {},
 ): NodeJS.ProcessEnv {
   const env = params.env ?? process.env;
   if (env.GOMEMLIMIT !== undefined) {
@@ -46,9 +46,11 @@ export function resolveNativeDeclarationCompilerEnv(
   if (unresolved || limitBytes === null) {
     return env;
   }
-  // A 10GiB host gets a 6GiB Go limit. The remaining 40% covers non-Go RSS,
-  // the build parent, and other processes; larger hosts avoid a fixed low cap.
-  const limitMiB = Math.floor((limitBytes * 0.6) / (1024 * 1024));
+  // Share the Go-managed budget across overlapping compiler children. This is
+  // only a soft Go limit; non-Go RSS and the build parent still need headroom.
+  const limitMiB = Math.floor(
+    (limitBytes * 0.6) / ((params.concurrentCompilers ?? 1) * 1024 * 1024),
+  );
   return limitMiB > 0 ? { ...env, GOMEMLIMIT: `${limitMiB}MiB` } : env;
 }
 
