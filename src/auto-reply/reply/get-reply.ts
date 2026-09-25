@@ -473,19 +473,47 @@ export async function getReplyFromConfig(
   }
   const workspaceDir = workspace.dir;
 
-  if (
+  const remoteMediaNeedsStaging =
     !isFastTestEnv &&
     !inboundMediaWasAlreadyStaged &&
     normalizeOptionalString(finalized.MediaRemoteHost) &&
-    hasInboundMedia(finalized)
-  ) {
+    hasInboundMedia(finalized);
+  const remoteMediaSessionState = remoteMediaNeedsStaging
+    ? await resolveReplySessionPreprocessingState({ ctx: finalized, cfg })
+    : undefined;
+  if (remoteMediaSessionState) {
+    const entry = remoteMediaSessionState.sessionEntry;
+    const selectedSkills =
+      entry?.skillLibrarySelections ??
+      entry?.skillsSnapshot?.librarySelections ??
+      finalized.SessionCreation?.skillLibrarySelections;
+    // This write precedes session initialization and media understanding. Give
+    // it the same private-skill isolation identity as the admitted run.
+    const stagingSkillsSnapshot = selectedSkills?.length
+      ? (
+          await (
+            await import("../../skills/runtime/session-snapshot.js")
+          ).resolveReusableWorkspaceSkillSnapshot({
+            workspaceDir,
+            executionWorkspaceDir: entry?.worktree?.canonicalWorkspaceDir ?? workspaceDir,
+            config: cfg,
+            agentId,
+            existingSnapshot: entry?.skillsSnapshot,
+            librarySelections: selectedSkills,
+            skillFilter: mergedSkillFilter,
+            skillOverrides: entry?.toolOverrides?.skills,
+          })
+        ).snapshot
+      : undefined;
+    assertReplyPreprocessingActive(internalOptsWithSkillFilter?.abortSignal);
     await traceGetReplyPhase("reply.stage_remote_media_pre_understanding", () =>
       stageRemoteInboundMediaIfNeeded({
         ctx: finalized,
         cfg,
         agentId,
-        sessionKey: agentSessionKey,
+        sessionKey: remoteMediaSessionState.sessionKey,
         workspaceDir,
+        skillsSnapshot: stagingSkillsSnapshot,
         abortSignal: internalOptsWithSkillFilter?.abortSignal,
       }),
     );
@@ -495,9 +523,10 @@ export async function getReplyFromConfig(
   const linkUnderstandingRequested = !isFastTestEnv && hasLinkCandidate(finalized);
   const preprocessingState =
     mediaUnderstandingRequested || linkUnderstandingRequested
-      ? await traceGetReplyPhase("reply.resolve_session_preprocessing_state", () =>
+      ? (remoteMediaSessionState ??
+        (await traceGetReplyPhase("reply.resolve_session_preprocessing_state", () =>
           resolveReplySessionPreprocessingState({ ctx: finalized, cfg }),
-        )
+        )))
       : undefined;
   assertReplyPreprocessingActive(internalOptsWithSkillFilter?.abortSignal);
   const utilityModelSelectionLocked = isModelSelectionLocked(preprocessingState?.sessionEntry);
