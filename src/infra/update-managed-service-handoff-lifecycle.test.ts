@@ -578,13 +578,17 @@ describe("managed service update handoff", () => {
     expect(child.stdout.destroyed).toBe(true);
   });
 
-  it.runIf(process.platform === "darwin")(
-    "replaces a removed Gateway Node path when the service definition remains runnable",
-    async () => {
+  it.runIf(process.platform === "darwin").each(["node", "nodejs", "node24.20.0"])(
+    "replaces a removed Gateway Node path when the %s service definition remains runnable",
+    async (serviceRuntimeName) => {
       const home = nodeTempDirs.make("openclaw-handoff-node-");
       const originalExecPath = process.execPath;
       const replacement = path.join(home, "node");
+      const serviceRuntime = path.join(home, serviceRuntimeName);
       await fs.symlink(originalExecPath, replacement);
+      if (serviceRuntime !== replacement) {
+        await fs.symlink(originalExecPath, serviceRuntime);
+      }
       const runtimePaths = await import("../daemon/runtime-paths.js");
       const launchdRuntime = await import("../daemon/launchd-runtime.js");
       const probe = vi.spyOn(runtimePaths, "resolveSystemNodeInfo").mockResolvedValue({
@@ -598,7 +602,7 @@ describe("managed service update handoff", () => {
       const service = vi
         .spyOn(launchdRuntime, "readLaunchAgentProgramArguments")
         .mockResolvedValue({
-          programArguments: [replacement, "/opt/openclaw/openclaw.mjs", "gateway"],
+          programArguments: [serviceRuntime, "/opt/openclaw/openclaw.mjs", "gateway"],
         });
       process.execPath = path.join(home, "removed-node");
       try {
