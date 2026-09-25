@@ -1,0 +1,49 @@
+name: PR 157783 native declaration memory proof
+
+on:
+  push:
+    branches:
+      - proof/native-dts-memory-157783
+
+permissions:
+  contents: read
+
+jobs:
+  cold-declarations-10g:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 2c9ca5be89531e084ff512ab1b8c7d8732d0529b
+          persist-credentials: false
+      - name: Verify candidate source
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = 2c9ca5be89531e084ff512ab1b8c7d8732d0529b
+          echo "Candidate source: $(git rev-parse HEAD)"
+      - name: Set up source dependencies
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: 24.21.0
+          install-bun: "false"
+          install-deps: "true"
+          cache-mode: "off"
+      - name: Cold declaration group under real 10 GiB cgroup
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .artifacts/pr-157783-native-memory
+          docker run --rm --memory=10g --memory-swap=10g --cpus=4 --network=none \
+            --mount type=bind,source="$GITHUB_WORKSPACE",target=/work \
+            --workdir /work node:24.21.0-bookworm \
+            node .github/scripts/pr-157783-native-memory-proof.mjs
+      - name: Upload sanitized memory receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: pr-157783-native-memory-proof
+          path: .artifacts/pr-157783-native-memory/
+          if-no-files-found: warn
+          retention-days: 14
