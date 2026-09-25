@@ -1083,12 +1083,37 @@ export async function getReplyFromConfig(
     hasInboundMedia(ctx)
   ) {
     const { stageSandboxMedia } = await stageSandboxMediaRuntimeLoader.load();
+    const stagingSessionEntry =
+      sessionEntryHandle?.getCurrent() ?? sessionStore?.[sessionKey] ?? sessionEntry;
     const stagingWorkspaceDir =
       resolveIngressWorkspaceOverrideForSessionRun({
-        spawnedBy: sessionEntry.spawnedBy,
-        workspaceDir: sessionEntry.spawnedWorkspaceDir,
-        cwd: sessionEntry.spawnedCwd,
+        spawnedBy: stagingSessionEntry.spawnedBy,
+        workspaceDir: stagingSessionEntry.spawnedWorkspaceDir,
+        cwd: stagingSessionEntry.spawnedCwd,
       }) ?? workspaceDir;
+    // Private library selections change the sandbox isolation identity. Resolve
+    // the current selection before staging so the attachment and admitted run
+    // select the same SSH runtime, even when a prior snapshot needs refreshing.
+    const selectedSkills =
+      stagingSessionEntry.skillLibrarySelections ??
+      stagingSessionEntry.skillsSnapshot?.librarySelections;
+    const stagingSkillsSnapshot = selectedSkills?.length
+      ? (
+          await (
+            await import("../../skills/runtime/session-snapshot.js")
+          ).resolveReusableWorkspaceSkillSnapshot({
+            workspaceDir,
+            executionWorkspaceDir:
+              stagingSessionEntry.worktree?.canonicalWorkspaceDir ?? workspaceDir,
+            config: cfg,
+            agentId,
+            existingSnapshot: stagingSessionEntry.skillsSnapshot,
+            librarySelections: selectedSkills,
+            skillFilter: preparedReplyOpts?.skillFilter,
+            skillOverrides: preparedReplyOpts?.skillOverrides,
+          })
+        ).snapshot
+      : undefined;
     const stageResult = await traceGetReplyPhase("reply.stage_media", () =>
       stageSandboxMedia({
         ctx,
@@ -1097,6 +1122,7 @@ export async function getReplyFromConfig(
         agentId,
         sessionKey,
         workspaceDir: stagingWorkspaceDir,
+        skillsSnapshot: stagingSkillsSnapshot,
         abortSignal: internalOptsWithSkillFilter?.abortSignal,
       }),
     );

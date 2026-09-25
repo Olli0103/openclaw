@@ -65,6 +65,21 @@ describe("SSH post-seed inbound staging", () => {
         const payload = Buffer.from("second-turn-image");
         await fs.writeFile(source, payload);
         const { ctx, sessionCtx } = createSandboxMediaContexts(source);
+        const skillsSnapshot =
+          workspaceAccess === "rw"
+            ? {
+                prompt: "",
+                skills: [],
+                librarySelections: [
+                  {
+                    skillId: "00000000-0000-0000-0000-000000000001",
+                    revision: "0".repeat(64),
+                    name: "private-proof",
+                    ownerProfileId: "private-profile",
+                  },
+                ],
+              }
+            : undefined;
 
         const result = await stageSandboxMedia({
           ctx,
@@ -72,6 +87,7 @@ describe("SSH post-seed inbound staging", () => {
           cfg: { agents: { defaults: { sandbox: { backend: "ssh" } } } },
           sessionKey: "agent:main:chat",
           workspaceDir: localWorkspace,
+          skillsSnapshot,
         });
 
         expect(sandboxMocks.resolveSandboxContext).toHaveBeenCalledExactlyOnceWith({
@@ -79,6 +95,7 @@ describe("SSH post-seed inbound staging", () => {
           agentId: undefined,
           sessionKey: "agent:main:chat",
           workspaceDir: localWorkspace,
+          skillsSnapshot,
         });
         expect(sandboxMocks.ensureSandboxWorkspaceForSession).not.toHaveBeenCalled();
         expect(await fs.readFile(path.join(remoteWorkspace, "seeded.txt"), "utf8")).toBe(

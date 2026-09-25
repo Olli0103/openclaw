@@ -34,6 +34,7 @@ import {
 } from "../../media/staged-inputs.js";
 import { getMediaDir } from "../../media/store.js";
 import { runCommandWithTimeout } from "../../process/exec.js";
+import type { SkillSnapshot } from "../../skills/types.js";
 import { CONFIG_DIR } from "../../utils.js";
 import type { RuntimeMsgContext as MsgContext, TemplateContext } from "../templating.js";
 
@@ -56,6 +57,7 @@ export async function stageSandboxMedia(params: {
   agentId?: string;
   sessionKey?: string;
   workspaceDir: string;
+  skillsSnapshot?: SkillSnapshot;
   remoteMediaMode?: "sandbox-or-cache" | "cache";
   abortSignal?: AbortSignal;
 }): Promise<StageSandboxMediaResult> {
@@ -83,6 +85,7 @@ export async function stageSandboxMedia(params: {
     agentId: params.agentId,
     sessionKey,
     workspaceDir,
+    skillsSnapshot: params.skillsSnapshot,
   };
   const sshSandbox =
     !forceRemoteCache &&
