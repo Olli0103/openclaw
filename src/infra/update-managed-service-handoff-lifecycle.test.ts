@@ -710,6 +710,61 @@ describe("managed service update handoff", () => {
     },
   );
 
+  it.runIf(process.platform === "darwin")(
+    "refuses an executable service wrapper with a removed inner Node before parking",
+    async () => {
+      const home = nodeTempDirs.make("openclaw-handoff-stale-wrapper-");
+      const originalExecPath = process.execPath;
+      const replacement = path.join(home, "node");
+      const removed = path.join(home, "removed-node");
+      const wrapper = path.join(home, "gateway-wrapper");
+      await fs.symlink(originalExecPath, replacement);
+      await fs.writeFile(
+        wrapper,
+        `#!/bin/sh\nexec '${removed}' /opt/openclaw/openclaw.mjs "$@"\n`,
+        { mode: 0o755 },
+      );
+      const runtimePaths = await import("../daemon/runtime-paths.js");
+      const launchdRuntime = await import("../daemon/launchd-runtime.js");
+      const probe = vi.spyOn(runtimePaths, "resolveSystemNodeInfo").mockResolvedValue({
+        path: replacement,
+        status: "supported",
+        version: process.versions.node,
+        sqliteVersion: "3.51.0",
+        nodeSharedSqlite: false,
+        sqliteProbe: { available: true, version: "3.51.0", text: true, blob: true, json: true },
+      });
+      const service = vi
+        .spyOn(launchdRuntime, "readLaunchAgentProgramArguments")
+        .mockResolvedValue({ programArguments: [wrapper, "gateway", "--port", "18789"] });
+      process.execPath = removed;
+      try {
+        const { startManagedServiceUpdateHandoff } =
+          await import("./update-managed-service-handoff.js");
+        await expect(
+          startManagedServiceUpdateHandoff({
+            root: MOCK_INSTALL_ROOT,
+            restartDrainTimeoutMs: 300_000,
+            parentPid: process.pid,
+            argv1: "/opt/openclaw/openclaw.mjs",
+            env: { HOME: home, PATH: home },
+            supervisor: "launchd",
+            meta: { sessionKey: "agent:test:webchat:dm:user-123" },
+          }),
+        ).rejects.toThrow("The Gateway's service definition could not be verified");
+        expect(service).toHaveBeenCalledWith(
+          { HOME: home, PATH: home },
+          { requireEffective: true },
+        );
+        expect(spawnMock).not.toHaveBeenCalled();
+      } finally {
+        process.execPath = originalExecPath;
+        probe.mockRestore();
+        service.mockRestore();
+      }
+    },
+  );
+
   it("strips supervisor hints while preserving service identity for the CLI handoff", async () => {
     const { startManagedServiceUpdateHandoff } =
       await import("./update-managed-service-handoff.js");

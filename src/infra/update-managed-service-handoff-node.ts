@@ -1,6 +1,10 @@
 import path from "node:path";
 import { UpdatePreMutationError } from "../cli/update-cli/shared.js";
-import { resolveNodeRuntimeInfo, resolveSystemNodeInfo } from "../daemon/runtime-paths.js";
+import {
+  resolveBunRuntimeInfo,
+  resolveNodeRuntimeInfo,
+  resolveSystemNodeInfo,
+} from "../daemon/runtime-paths.js";
 import { buildCliRespawnPlan } from "../entry.respawn.js";
 import {
   isExecutableFile,
@@ -61,8 +65,29 @@ async function assertManagedHandoffServiceRuntime(
   } catch (cause) {
     throw new ManagedHandoffServiceRuntimeUnavailableError(cause);
   }
-  const executable = command?.programArguments[0];
-  if (!executable || !resolveExecutablePath(executable, { env, useCache: false })) {
+  const args = command?.programArguments ?? [];
+  const executable = args[0];
+  const gatewayIndex = args.indexOf("gateway");
+  const entrypoint = args[gatewayIndex - 1];
+  const runtimeName = path.basename(executable ?? "").toLowerCase();
+  // A supported service wrapper has the shape [wrapper, "gateway", ...]. Its
+  // executable can be healthy while its hidden Node path is gone. Only a direct
+  // runtime + CLI entrypoint can be verified before parking the serving Gateway.
+  if (
+    !executable ||
+    !resolveExecutablePath(executable, { env, useCache: false }) ||
+    gatewayIndex < 2 ||
+    !entrypoint ||
+    !path.isAbsolute(entrypoint) ||
+    !/\.(?:[cm]?js|ts)$/iu.test(entrypoint) ||
+    !/^(?:node|bun)(?:\.exe)?$/iu.test(runtimeName)
+  ) {
+    throw new ManagedHandoffServiceRuntimeUnavailableError();
+  }
+  const runtime = runtimeName.startsWith("bun")
+    ? await resolveBunRuntimeInfo(executable, undefined, env)
+    : await resolveNodeRuntimeInfo(executable, env);
+  if (runtime.status !== "supported") {
     throw new ManagedHandoffServiceRuntimeUnavailableError();
   }
 }
