@@ -1,0 +1,17 @@
+{
+  "mode": "patched",
+  "actualGatewayResponses": [
+    {
+      "ok": true,
+      "replayed": false
+    },
+    {
+      "ok": true,
+      "replayed": true
+    }
+  ],
+  "sameOperationIdentity": true,
+  "visibleError": true,
+  "errorText": "\n      \n    \n       \n    \n    \n    \n  \n      Goal update not confirmed. Check its outcome before making another change. Synthetic receipt transport interrupted\n      \n        \n          \n            \n    \n       \n    \n    \n  \n            \n    \n      \n    \n  \n          \n        \n        \n      Copy error\n    \n      \n        \n          \n            \n    \n       \n    \n    \n  \n          \n        Dismiss error\n      \n    ",
+  "recoveryControlEnabled": true
+}
