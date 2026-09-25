@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 
-const expectedHead = "2c9ca5be89531e084ff512ab1b8c7d8732d0529b";
+const expectedHead = "726dea10b3e54389935e0c27744d2cfc35763dd5";
 const expectedLimit = 10 * 1024 ** 3;
 const output = ".artifacts/pr-157783-native-memory/receipt.json";
 const read = (file) => fs.readFileSync(file, "utf8").trim();
