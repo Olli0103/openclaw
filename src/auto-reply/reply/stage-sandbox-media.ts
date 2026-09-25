@@ -84,13 +84,12 @@ export async function stageSandboxMedia(params: {
     sessionKey,
     workspaceDir,
   };
-  const sandboxAgentId = resolveSessionAgentId({
-    sessionKey,
-    config: cfg,
-    agentId: params.agentId,
-  });
   const sshSandbox =
-    !forceRemoteCache && resolveSandboxConfigForAgent(cfg, sandboxAgentId).backend === "ssh"
+    !forceRemoteCache &&
+    resolveSandboxConfigForAgent(
+      cfg,
+      resolveSessionAgentId({ sessionKey, config: cfg, agentId: params.agentId }),
+    ).backend === "ssh"
       ? await resolveSandboxContext(sandboxParams)
       : null;
   const sandbox = forceRemoteCache
