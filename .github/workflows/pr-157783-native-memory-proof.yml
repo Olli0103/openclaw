@@ -16,7 +16,7 @@ jobs:
       - name: Check out exact PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 2c9ca5be89531e084ff512ab1b8c7d8732d0529b
+          ref: 726dea10b3e54389935e0c27744d2cfc35763dd5
           persist-credentials: false
       - name: Check out proof harness only
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -28,7 +28,7 @@ jobs:
       - name: Verify candidate source
         shell: bash
         run: |
-          test "$(git rev-parse HEAD)" = 2c9ca5be89531e084ff512ab1b8c7d8732d0529b
+          test "$(git rev-parse HEAD)" = 726dea10b3e54389935e0c27744d2cfc35763dd5
           test -f proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs
           echo "Candidate source: $(git rev-parse HEAD)"
       - name: Set up source dependencies
