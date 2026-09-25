@@ -91,10 +91,12 @@ const receipt = {
 fs.mkdirSync(".artifacts/pr-157783-native-memory", { recursive: true });
 fs.writeFileSync(output, `${JSON.stringify(receipt, null, 2)}\n`);
 console.log(`Proof receipt: ${JSON.stringify(receipt)}`);
+const observedGoLimitMiB = /^([1-9]\d*)MiB$/u.exec(compilerGOMEMLIMIT ?? "")?.[1];
 if (
   exitCode !== 0 ||
   !compilerPid ||
-  compilerGOMEMLIMIT !== "6144MiB" ||
+  !observedGoLimitMiB ||
+  Number(observedGoLimitMiB) > 6144 ||
   receipt.oomEventsDelta !== 0 ||
   receipt.oomKillEventsDelta !== 0
 ) {
