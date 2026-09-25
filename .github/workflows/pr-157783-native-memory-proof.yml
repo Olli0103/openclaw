@@ -13,6 +13,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
+      - name: Check out proof harness only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: proof-harness
+          sparse-checkout: .github/scripts/pr-157783-native-memory-proof.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - name: Check out exact PR head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,7 +45,7 @@ jobs:
           docker run --rm --memory=10g --memory-swap=10g --cpus=4 --network=none \
             --mount type=bind,source="$GITHUB_WORKSPACE",target=/work \
             --workdir /work node:24.21.0-bookworm \
-            node .github/scripts/pr-157783-native-memory-proof.mjs
+            node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs
       - name: Upload sanitized memory receipt
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
