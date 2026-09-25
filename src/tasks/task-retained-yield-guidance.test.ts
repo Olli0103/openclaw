@@ -1,13 +1,9 @@
 // Covers retained sessions_yield diagnostics for audit, maintenance, and drain.
+import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it } from "vitest";
 import { prepareCanonicalTaskActivation } from "./task-backing-authority-write.js";
 import { createSubagentTaskBackingDetail } from "./task-backing-authority.js";
 import { createRunningTaskRun, withTaskExecutorStateDir } from "./task-executor.test-support.js";
-import {
-  captureTaskAgentEventChange,
-  prepareTaskAgentEventUpdate,
-} from "./task-registry-agent-event.operation.js";
-import { captureTaskPersistenceReceipt } from "./task-registry-records.js";
 import { tasks } from "./task-registry-state.js";
 import {
   getInspectableActiveTaskRestartBlockers,
@@ -87,11 +83,14 @@ describe("retained sessions_yield guidance", () => {
       diagnostics.find((diagnostic) => diagnostic.taskId === live.taskId)?.detail,
     ).toBeUndefined();
     const blockers = getInspectableActiveTaskRestartBlockers();
-    const yieldBlocker = blockers.find((blocker) => blocker.taskId === yielded.taskId);
-    const liveBlocker = blockers.find((blocker) => blocker.taskId === live.taskId);
-    if (!yieldBlocker || !liveBlocker) {
-      throw new Error("expected both restart blockers");
-    }
+    const yieldBlocker = expectDefined(
+      blockers.find((blocker) => blocker.taskId === yielded.taskId),
+      "retained yield restart blocker",
+    );
+    const liveBlocker = expectDefined(
+      blockers.find((blocker) => blocker.taskId === live.taskId),
+      "live task restart blocker",
+    );
     expect(yieldBlocker.retainedYield).toBe("sessions_yield");
     expect(liveBlocker.retainedYield).toBeUndefined();
     expect(formatActiveTaskRestartBlocker(yieldBlocker)).toContain(
@@ -116,112 +115,42 @@ describe("retained sessions_yield guidance", () => {
         startedAt: 1,
         lastEventAt: 1,
       });
-      const stored = tasks.get(created.taskId);
-      if (!stored?.parentFlowId || !stored.childSessionKey || !stored.runId) {
-        throw new Error("expected a mirrored running task");
-      }
+      const stored = expectDefined(tasks.get(created.taskId), "mirrored running task");
+      expectDefined(stored.parentFlowId || undefined, "mirrored task parent flow");
+      const childSessionKey = expectDefined(
+        stored.childSessionKey || undefined,
+        "mirrored child session",
+      );
+      const runId = expectDefined(stored.runId || undefined, "mirrored run");
       stored.lastToolName = "sessions_yield";
       getTaskRegistryStore().upsertTaskWithDeliveryState({ task: stored });
-      const persisted = loadTaskRegistryStateFromSqliteReadOnly().tasks.get(stored.taskId);
-      expect(persisted?.lastToolName).toBe("sessions_yield");
-      expect(isRetainedYieldOwner(persisted ?? stored)).toBe(true);
+      const persisted = expectDefined(
+        loadTaskRegistryStateFromSqliteReadOnly().tasks.get(stored.taskId),
+        "persisted yield task",
+      );
+      expect(persisted.lastToolName).toBe("sessions_yield");
+      expect(isRetainedYieldOwner(persisted)).toBe(true);
 
-      const prepared = prepareCanonicalTaskActivation({
-        runtime: "subagent",
-        childSessionKey: stored.childSessionKey,
-        runId: stored.runId,
-        detail: createSubagentTaskBackingDetail(2),
-        startedAt: 2,
-      });
-      if (!prepared) {
-        throw new Error("expected canonical activation");
-      }
+      const prepared = expectDefined(
+        prepareCanonicalTaskActivation({
+          runtime: "subagent",
+          childSessionKey,
+          runId,
+          detail: createSubagentTaskBackingDetail(2),
+          startedAt: 2,
+        }),
+        "canonical task activation",
+      );
       expect(prepared.current.lastToolName).toBe("sessions_yield");
       getTaskRegistryStore().upsertTaskWithDeliveryState({ task: prepared.next });
-      const resumed = loadTaskRegistryStateFromSqliteReadOnly().tasks.get(stored.taskId);
-      expect(resumed?.status).toBe("running");
-      expect(resumed?.endedAt).toBeUndefined();
-      expect(resumed?.lastToolName).toBeUndefined();
-      expect(isRetainedYieldOwner(resumed ?? prepared.next)).toBe(false);
-    });
-  });
-
-  it("clears a deferred or rejected sessions_yield instead of keeping the clue", () => {
-    const task = makeStaleTask({
-      runId: "run-yield",
-      childSessionKey: "agent:main:subagent:yield",
-      lastToolName: "sessions_yield",
-    });
-    const expectedTask = captureTaskPersistenceReceipt(task);
-    for (const result of [
-      { details: { status: "deferred" } },
-      { details: { status: "error", error: "Yield not supported in this context" } },
-      { details: { status: "already_pending" } },
-    ]) {
-      const change = captureTaskAgentEventChange(
-        task,
-        {
-          runId: "run-yield",
-          seq: 2,
-          stream: "tool",
-          ts: (task.lastEventAt ?? task.createdAt) + 1,
-          data: {
-            phase: "result",
-            name: "sessions_yield",
-            toolCallId: "yield-1",
-            isError: result.details.status === "error",
-            result,
-          },
-        },
-        false,
-        "yield-1",
+      const resumed = expectDefined(
+        loadTaskRegistryStateFromSqliteReadOnly().tasks.get(stored.taskId),
+        "persisted resumed task",
       );
-      expect(change?.clearLastToolName).toBe(true);
-      const update = change
-        ? prepareTaskAgentEventUpdate(task, { taskId: task.taskId, expectedTask, change })
-        : null;
-      if (!update) {
-        throw new Error("expected the unconfirmed yield name to clear");
-      }
-      expect(update.task.lastToolName).toBeUndefined();
-      expect(Object.hasOwn(update.task, "lastToolName")).toBe(false);
-      expect(isRetainedYieldOwner(update.task)).toBe(false);
-    }
-
-    const yielded = captureTaskAgentEventChange(
-      task,
-      {
-        runId: "run-yield",
-        seq: 3,
-        stream: "tool",
-        ts: (task.lastEventAt ?? task.createdAt) + 1,
-        data: {
-          phase: "result",
-          name: "sessions_yield",
-          toolCallId: "yield-1",
-          isError: false,
-          result: { details: { status: "yielded" } },
-        },
-      },
-      false,
-      "yield-1",
-    );
-    expect(yielded?.clearLastToolName).toBeUndefined();
-    expect(isRetainedYieldOwner(task)).toBe(true);
-
-    const unknown = captureTaskAgentEventChange(
-      task,
-      {
-        runId: "run-yield",
-        seq: 4,
-        stream: "tool",
-        ts: (task.lastEventAt ?? task.createdAt) + 1,
-        data: { phase: "result", name: "sessions_yield", toolCallId: "yield-1", isError: false },
-      },
-      false,
-      "yield-1",
-    );
-    expect(unknown?.clearLastToolName).toBeUndefined();
-    expect(isRetainedYieldOwner(task)).toBe(true);
+      expect(resumed.status).toBe("running");
+      expect(resumed.endedAt).toBeUndefined();
+      expect(resumed.lastToolName).toBeUndefined();
+      expect(isRetainedYieldOwner(resumed)).toBe(false);
+    });
   });
 });

@@ -1,4 +1,5 @@
 // Covers managed task-flow audit summaries and stale-flow classification.
+import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { captureEnv } from "../test-utils/env.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
@@ -10,11 +11,8 @@ import {
 } from "./task-executor.js";
 import { listTaskFlowAuditFindings } from "./task-flow-registry.audit.js";
 import type { TaskFlowAuditCode, TaskFlowAuditFinding } from "./task-flow-registry.audit.types.js";
-import {
-  createManagedTaskFlow as createManagedTaskFlowOrNull,
-  requestFlowCancel,
-  setFlowWaiting,
-} from "./task-flow-registry.js";
+import { requestFlowCancel, setFlowWaiting } from "./task-flow-registry.js";
+import { createManagedTaskFlow } from "./task-flow-registry.test-support.js";
 import type { TaskFlowRecord } from "./task-flow-registry.types.js";
 import { tasks } from "./task-registry-state.js";
 import type { TaskRecord } from "./task-registry.types.js";
@@ -27,24 +25,11 @@ import {
 
 const ORIGINAL_ENV = captureEnv(["OPENCLAW_STATE_DIR"]);
 
-function createManagedTaskFlow(
-  params: Parameters<typeof createManagedTaskFlowOrNull>[0],
-): TaskFlowRecord {
-  const flow = createManagedTaskFlowOrNull(params);
-  if (!flow) {
-    throw new Error("expected managed TaskFlow creation to succeed");
-  }
-  return flow;
-}
-
 function createRunningTaskRun(
   params: Parameters<typeof createRunningTaskRunOrNull>[0],
 ): TaskRecord {
-  const task = createRunningTaskRunOrNull(params);
-  if (!task) {
-    throw new Error("expected running task creation to succeed");
-  }
-  return task;
+  // Audit fixtures intentionally omit the executor helper's synthetic backing metadata.
+  return expectDefined(createRunningTaskRunOrNull(params), "running audit task");
 }
 
 function requireFinding(
@@ -269,10 +254,7 @@ describe("task-flow-registry audit", () => {
         startedAt: 1,
         lastEventAt: 1,
       });
-      const yieldedStored = tasks.get(yielded.taskId);
-      if (!yieldedStored) {
-        throw new Error("expected yielded task");
-      }
+      const yieldedStored = expectDefined(tasks.get(yielded.taskId), "yielded task");
       yieldedStored.lastToolName = "sessions_yield";
 
       const mixedFlow = createManagedTaskFlow({
@@ -305,11 +287,8 @@ describe("task-flow-registry audit", () => {
         startedAt: 1,
         lastEventAt: 1,
       });
-      const mixedYieldStored = tasks.get(mixedYield.taskId);
-      const mixedLiveStored = tasks.get(mixedLive.taskId);
-      if (!mixedYieldStored || !mixedLiveStored) {
-        throw new Error("expected mixed tasks");
-      }
+      const mixedYieldStored = expectDefined(tasks.get(mixedYield.taskId), "mixed yielded task");
+      const mixedLiveStored = expectDefined(tasks.get(mixedLive.taskId), "mixed live task");
       mixedYieldStored.lastToolName = "sessions_yield";
       mixedLiveStored.lastToolName = "read";
 
