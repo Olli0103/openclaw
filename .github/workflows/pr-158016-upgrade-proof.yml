@@ -1,0 +1,48 @@
+name: PR 158016 published upgrade proof
+
+on:
+  push:
+    branches:
+      - proof/updater-157747
+
+permissions:
+  contents: read
+
+jobs:
+  published-upgrade:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: e0fe7ed1b10e996bd0f070314652392925004a86
+          persist-credentials: false
+      - name: Verify candidate source
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = e0fe7ed1b10e996bd0f070314652392925004a86
+          echo "Candidate source: $(git rev-parse HEAD)"
+      - name: Set up source dependencies
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: 24.21.0
+          install-bun: "true"
+          install-deps: "true"
+          cache-mode: "off"
+      - name: Published updater to exact candidate, disposable Linux state
+        env:
+          OPENCLAW_DOCKER_ALL_LANES: published-upgrade-survivor
+          OPENCLAW_DOCKER_ALL_LOG_DIR: ${{ github.workspace }}/.artifacts/pr-158016-upgrade
+          OPENCLAW_DOCKER_ALL_TIMINGS: "0"
+          OPENCLAW_UPGRADE_SURVIVOR_BASELINE_SPECS: openclaw@2026.9.5
+          OPENCLAW_UPGRADE_SURVIVOR_SCENARIOS: legacy-operator-state
+        run: node scripts/test-docker-all.mjs
+      - name: Upload upgrade receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: pr-158016-upgrade-proof
+          path: .artifacts/pr-158016-upgrade/
+          if-no-files-found: warn
+          retention-days: 7
