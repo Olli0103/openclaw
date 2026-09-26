@@ -9,6 +9,8 @@ import type { IMessagePrivateApiStatus } from "./private-api-status.js";
 const spawnMock = vi.hoisted(() => vi.fn());
 const runIMessageCliJsonCommandMock = vi.hoisted(() => vi.fn());
 const logVerboseMock = vi.hoisted(() => vi.fn());
+const contactsChangeDiagnostic =
+  "Could not fetch group for change type 1 with identifier 9E2F71C2:ABGroup, making it a delete change type.";
 
 vi.mock("node:child_process", () => ({
   spawn: spawnMock,
@@ -467,7 +469,10 @@ describe("IMessageRpcClient child stream error handling", () => {
     expect(runtimeError).toHaveBeenCalledWith("imsg rpc: unrelated warning");
   });
 
-  it("downgrades known-benign Apple framework stderr to verbose instead of ERROR", async () => {
+  it.each([
+    contactsChangeDiagnostic,
+    `2026-08-04 00:32:38.518 imsg[88305:38969629] ${contactsChangeDiagnostic}`,
+  ])("logs the Contacts reconciliation diagnostic at verbose: %s", async (line) => {
     const runtimeError = vi.fn();
     const client = new IMessageRpcClient({
       cliPath: "imsg",
@@ -475,20 +480,19 @@ describe("IMessageRpcClient child stream error handling", () => {
     });
     await client.start();
 
-    child.stderr.emit(
-      "data",
-      Buffer.from(
-        "2026-08-04 00:32:38.518 imsg[88305:38969629] Could not fetch group for change type 1 with identifier 9E2F71C2:ABGroup, making it a delete change type.\n",
-      ),
-    );
+    child.stderr.emit("data", Buffer.from(`${line}\n`));
 
     expect(runtimeError).not.toHaveBeenCalled();
-    expect(logVerboseMock).toHaveBeenCalledWith(
-      expect.stringContaining("Could not fetch group for change type"),
-    );
+    expect(logVerboseMock).toHaveBeenCalledWith(`imsg rpc: ${line}`);
   });
 
-  it("keeps a genuine imsg stderr failure at ERROR", async () => {
+  it.each([
+    "unable to connect to Messages database",
+    "CoreData: error: Failed to load persistent store",
+    "AddressBook failed to save contact",
+    `${contactsChangeDiagnostic} CoreData: error: Failed to load persistent store`,
+    `CoreData: error: Failed to load persistent store ${contactsChangeDiagnostic}`,
+  ])("keeps other stderr diagnostics at ERROR: %s", async (line) => {
     const runtimeError = vi.fn();
     const client = new IMessageRpcClient({
       cliPath: "imsg",
@@ -496,27 +500,9 @@ describe("IMessageRpcClient child stream error handling", () => {
     });
     await client.start();
 
-    child.stderr.emit("data", Buffer.from("unable to connect to Messages database\n"));
+    child.stderr.emit("data", Buffer.from(`${line}\n`));
 
-    expect(runtimeError).toHaveBeenCalledWith("imsg rpc: unable to connect to Messages database");
-    expect(logVerboseMock).not.toHaveBeenCalled();
-  });
-
-  it("keeps Apple framework failures that only share names at ERROR", async () => {
-    const runtimeError = vi.fn();
-    const client = new IMessageRpcClient({
-      cliPath: "imsg",
-      runtime: { error: runtimeError, exit: vi.fn(), log: vi.fn() },
-    });
-    await client.start();
-
-    child.stderr.emit("data", Buffer.from("CoreData: error: Failed to load persistent store\n"));
-    child.stderr.emit("data", Buffer.from("AddressBook failed to save contact\n"));
-
-    expect(runtimeError).toHaveBeenCalledWith(
-      "imsg rpc: CoreData: error: Failed to load persistent store",
-    );
-    expect(runtimeError).toHaveBeenCalledWith("imsg rpc: AddressBook failed to save contact");
+    expect(runtimeError).toHaveBeenCalledWith(`imsg rpc: ${line}`);
     expect(logVerboseMock).not.toHaveBeenCalled();
   });
 
@@ -524,8 +510,7 @@ describe("IMessageRpcClient child stream error handling", () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-imessage-rpc-stderr-"));
     tempDirs.push(root);
     const wrapperPath = path.join(root, "imsg");
-    const documented =
-      "2026-08-04 00:32:38.518 imsg[88305:38969629] Could not fetch group for change type 1 with identifier 9E2F71C2:ABGroup, making it a delete change type.";
+    const documented = `2026-08-04 00:32:38.518 imsg[88305:38969629] ${contactsChangeDiagnostic}`;
     const frameworkError = "CoreData: error: Failed to load persistent store";
     await fs.writeFile(
       wrapperPath,

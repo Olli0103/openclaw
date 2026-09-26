@@ -9,13 +9,10 @@ import { expandIMessageUserPath } from "./cli-path.js";
 import { DEFAULT_IMESSAGE_PROBE_TIMEOUT_MS } from "./constants.js";
 import { invalidateCachedIMessagePrivateApiStatus } from "./private-api-status.js";
 
-// Contacts change-history reconciliation writes this specific stderr line from
-// Apple frameworks linked into the imsg process. The imsg binary contains none
-// of these strings. Match the complete documented message only; other lines that
-// merely mention AddressBook, ABGroup, or CoreData are real failures and must
-// stay at ERROR.
+// Match only the documented Contacts reconciliation diagnostic; other Apple
+// framework messages must keep their error level.
 const IMSG_APPLE_FRAMEWORK_STDERR_PATTERN =
-  /\bCould not fetch group for change type \d+ with identifier [^:]+:ABGroup, making it a delete change type\./u;
+  /^(?:\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ imsg\[\d+:\d+\] )?Could not fetch group for change type \d+ with identifier [^:]+:ABGroup, making it a delete change type\.$/u;
 
 type IMessageRpcError = {
   code?: number;
