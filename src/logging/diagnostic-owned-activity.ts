@@ -66,9 +66,9 @@ export function beginDiagnosticRetryWait(params: {
   return close;
 }
 
-/** Binds one backend attempt's quiet allowance to its exact live core owner. */
 const FOREGROUND_AGENT_TOOL_NAMES = new Set(["Agent", "Task"]);
 
+/** Binds one backend attempt's quiet allowance to its exact live core owner. */
 export function beginDiagnosticBackendActivity(params: {
   owner: DiagnosticEmbeddedRunOwner;
   noOutputTimeoutMs: number;
@@ -113,17 +113,20 @@ export function beginDiagnosticBackendActivity(params: {
       if (!activity || !toolCallId) {
         return false;
       }
-      const matched = [...activity.activeTools.values()].find(
-        (tool) => tool.toolCallId === toolCallId,
-      );
-      if (!matched || !FOREGROUND_AGENT_TOOL_NAMES.has(matched.toolName)) {
-        return false;
+      for (const tool of activity.activeTools.values()) {
+        if (tool.toolCallId !== toolCallId) {
+          continue;
+        }
+        if (!FOREGROUND_AGENT_TOOL_NAMES.has(tool.toolName)) {
+          return false;
+        }
+        const now = Date.now();
+        backendActivity.deadlineAtMs = now + quietAllowanceMs;
+        tool.lastProgressAt = now;
+        touchSessionActivity(activity, `tool:${tool.toolName}:subagent_progress`, now);
+        return true;
       }
-      const now = Date.now();
-      backendActivity.deadlineAtMs = now + quietAllowanceMs;
-      matched.lastProgressAt = now;
-      touchSessionActivity(activity, `tool:${matched.toolName}:subagent_progress`, now);
-      return true;
+      return false;
     },
     setOutstandingWork: (active) => {
       if (!currentActivity()) {
