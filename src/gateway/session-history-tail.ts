@@ -21,9 +21,13 @@ import type {
   SessionTranscriptReadScope,
 } from "./session-transcript-read-kernel.js";
 
-const SILENT_CHAT_HISTORY_TAIL_SCAN_MAX_MESSAGES = 8_000;
+export const SILENT_CHAT_HISTORY_TAIL_SCAN_MAX_MESSAGES = 8_000;
 const SILENT_CHAT_HISTORY_TAIL_SCAN_CHUNK_MESSAGES = 100;
 const SILENT_CHAT_HISTORY_TAIL_SCAN_MAX_CHUNK_MESSAGES = 400;
+
+export function resolveChatHistoryTailReadMaxBytes(maxBytes: number): number {
+  return Math.max(maxBytes * 2, 1024 * 1024);
+}
 
 export function readChatHistoryMessageId(message: unknown): string | undefined {
   const id = asOptionalRecord(asOptionalRecord(message)?.["__openclaw"])?.id;
@@ -35,7 +39,7 @@ export function readChatHistoryMessageSeq(message: unknown): number | undefined 
   return asPositiveSafeInteger(metadata?.seq);
 }
 
-export function capOffsetChatHistoryProjectedMessages(messages: unknown[], max: number): unknown[] {
+function capOffsetChatHistoryProjectedMessages(messages: unknown[], max: number): unknown[] {
   if (messages.length <= max) {
     return messages;
   }
@@ -64,6 +68,7 @@ export function dropChatHistoryOverreadContextMessage(
 }
 
 export type IncrementalChatHistoryTail = {
+  windowReset?: boolean;
   overreadContextMessage: unknown;
   projection: ReturnType<typeof projectChatDisplayMessagesWithState>;
   projected: unknown[];
@@ -91,14 +96,20 @@ async function readAdjacentChatHistoryMessages(params: {
     allowResetArchiveFallback: true,
     readOnly: params.readOnly,
   });
-  if (!page.found || page.displaySource !== params.displaySource) {
-    throw new SessionTranscriptProjectionUnavailableError(params.readScope.sessionId);
+  if (page.windowReset || !page.found || page.displaySource !== params.displaySource) {
+    throw new SessionTranscriptProjectionUnavailableError(
+      params.readScope.sessionId,
+      "window-changed",
+    );
   }
   const anchorIndex = page.messages.findIndex(
     (message) => readChatHistoryMessageId(message) === params.anchorId,
   );
   if (anchorIndex < 0) {
-    throw new SessionTranscriptProjectionUnavailableError(params.readScope.sessionId);
+    throw new SessionTranscriptProjectionUnavailableError(
+      params.readScope.sessionId,
+      "window-changed",
+    );
   }
   return params.direction === "newer"
     ? page.messages.slice(anchorIndex + 1, anchorIndex + 1 + params.limit)
@@ -168,7 +179,7 @@ export async function readChatHistoryRecoveryContext(params: {
 }
 
 /** Scans indexed transcript records until one bounded visible history page is filled. */
-export async function readIncrementalChatHistoryTail(params: {
+async function readIncrementalChatHistoryTailAttempt(params: {
   entry: SessionEntry | undefined;
   readScope: SessionTranscriptReadScope;
   readers: SessionTranscriptReader;
@@ -203,7 +214,7 @@ export async function readIncrementalChatHistoryTail(params: {
       ? await params.readers.readRecentSessionMessagesWithStatsAsync(params.readScope, {
           maxMessages: initialMessages + 1,
           maxLines: initialMessages + 1,
-          maxBytes: Math.max(params.maxBytes * 2, 1024 * 1024),
+          maxBytes: resolveChatHistoryTailReadMaxBytes(params.maxBytes),
           allowResetArchiveFallback: true,
           captureReadWindow: true,
           readOnly: params.readOnly,
@@ -217,7 +228,7 @@ export async function readIncrementalChatHistoryTail(params: {
                 recentAtHead: {
                   maxMessages: rawHistoryWindowMessages + 1,
                   maxLines: rawHistoryWindowMessages + 1,
-                  maxBytes: Math.max(params.maxBytes * 2, 1024 * 1024),
+                  maxBytes: resolveChatHistoryTailReadMaxBytes(params.maxBytes),
                 },
               }
             : {}),
@@ -392,9 +403,12 @@ export async function readIncrementalChatHistoryTail(params: {
             readOnly: params.readOnly,
           });
     // Separate awaits may cross a destructive rewrite, even when a page is empty.
-    // Let the existing retryable history response request one coherent snapshot.
-    if (page.displaySource !== readPage.displaySource) {
-      throw new SessionTranscriptProjectionUnavailableError(params.readScope.sessionId);
+    // Restart assembly instead of mixing records from different windows.
+    if (page.windowReset || page.displaySource !== readPage.displaySource) {
+      throw new SessionTranscriptProjectionUnavailableError(
+        params.readScope.sessionId,
+        "window-changed",
+      );
     }
     if (page.messages.length === 0) {
       break;
@@ -439,4 +453,27 @@ export async function readIncrementalChatHistoryTail(params: {
     rawPageMessages,
     readPage,
   };
+}
+
+export async function readIncrementalChatHistoryTail(
+  params: Parameters<typeof readIncrementalChatHistoryTailAttempt>[0],
+): Promise<IncrementalChatHistoryTail> {
+  try {
+    return await readIncrementalChatHistoryTailAttempt(params);
+  } catch (error) {
+    if (
+      !(error instanceof SessionTranscriptProjectionUnavailableError) ||
+      error.reason !== "window-changed"
+    ) {
+      throw error;
+    }
+    return {
+      ...(await readIncrementalChatHistoryTailAttempt({
+        ...params,
+        offset: 0,
+        beforeSeq: undefined,
+      })),
+      windowReset: true,
+    };
+  }
 }
