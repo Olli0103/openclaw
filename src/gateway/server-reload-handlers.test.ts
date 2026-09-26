@@ -9,11 +9,7 @@ import { afterEach, assert, beforeEach, describe, expect, it, vi } from "vitest"
 import { createInfoWarnErrorLogger } from "../../test/helpers/mock-logger.js";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
-import {
-  getRuntimeAuthProfileStoreCredentialsRevision,
-  getRuntimeAuthProfileStoreSnapshotsRevision,
-  prepareRuntimeAuthProfileStoreSnapshots,
-} from "../agents/auth-profiles/runtime-snapshots.js";
+import { prepareRuntimeAuthProfileStoreSnapshots } from "../agents/auth-profiles/runtime-snapshots.js";
 import { addSession, markBackgrounded, markExited } from "../agents/bash-process-registry.js";
 import { createProcessSessionFixture } from "../agents/bash-process-registry.test-helpers.js";
 import { resetProcessRegistryForTests } from "../agents/bash-process-registry.test-support.js";
@@ -74,7 +70,6 @@ import { createSimpleChannelSecretContract } from "../secrets/channel-secret-bas
 import { providerResolutionError } from "../secrets/resolve-errors.js";
 import { resolveAuthProfileSecretOwnerId } from "../secrets/runtime-auth-profile-owner.js";
 import { listActiveDegradedSecretOwners } from "../secrets/runtime-degraded-state.js";
-import { createEmptyRuntimeWebToolsMetadata } from "../secrets/runtime-fast-path.js";
 import {
   classifySecretOwnerDegradationState,
   listSecretAssignmentOwners,
@@ -101,7 +96,13 @@ import {
 } from "./config-reload-plan.js";
 import { doesReloadAffectProviderAuth } from "./config-reload-recovery.js";
 import type { GatewayHotReloadApplication } from "./config-reload-status.types.js";
-import { prepareConfigReloadTest, waitForReloadState } from "./config-reload.test-support.js";
+import {
+  createPluginLifecycleLeaseTestClock,
+  createRecoveryRestartMock,
+  createReloadWarningObserver,
+  prepareConfigReloadTest,
+  waitForReloadState,
+} from "./config-reload.test-support.js";
 import { applyHookMappings } from "./hooks-mapping.js";
 import { commitHooksConfigReload } from "./hooks.js";
 import { createChannelManager } from "./server-channels.js";
@@ -135,7 +136,11 @@ import {
   SharedGatewaySessionGenerationState,
 } from "./server-shared-auth-generation.js";
 import { createRuntimeSecretsActivator } from "./server-startup-config.js";
-import { createTestRuntimeSecretsActivator } from "./server-startup-config.test-support.js";
+import {
+  createMockRuntimeSecretsActivator,
+  createTestRuntimeSecretsActivator,
+  makePreparedSecretsSnapshot,
+} from "./server-startup-config.test-support.js";
 import { resolveSharedGatewaySessionGeneration } from "./server/ws-shared-generation.js";
 import { createTerminalLaunchPolicy } from "./terminal/launch.js";
 import { TerminalSessionManager } from "./terminal/session-manager.js";
@@ -147,16 +152,6 @@ import {
 
 type ReloadHandlerParams = Parameters<typeof createGatewayReloadHandlersImpl>[0];
 type ManagedReloaderParams = Parameters<typeof startManagedGatewayConfigReloaderImpl>[0];
-function createMockRuntimeSecretsActivator(
-  prepare: (config: OpenClawConfig) => Promise<PreparedSecretsRuntimeSnapshot> = async (config) =>
-    makePreparedSecretsSnapshot(config),
-) {
-  const prepareSnapshot = vi.fn<
-    NonNullable<Parameters<typeof createTestRuntimeSecretsActivator>[0]>
-  >(({ config }) => prepare(config));
-  const owner = createTestRuntimeSecretsActivator(prepareSnapshot);
-  return Object.assign(owner, { prepareSnapshot });
-}
 async function withChannelReloadsEnabled<T>(run: () => Promise<T>): Promise<T> {
   const restoreChannelReloadEnv = enableChannelReloadsForTest();
   try {
@@ -177,15 +172,6 @@ function waitForFast<T>(
   options: { timeout?: number; interval?: number } = {},
 ) {
   return vi.waitFor(callback, { interval: 1, ...options });
-}
-
-function createRecoveryRestartMock() {
-  const emitted = createDeferred();
-  const requestRecoveryRestart = vi.fn(() => {
-    emitted.resolve();
-    return { status: "emitted" as const };
-  });
-  return { requestRecoveryRestart, restartEmitted: emitted.promise };
 }
 
 const tempDirs: string[] = [];
@@ -445,8 +431,7 @@ vi.mock("../agents/model-catalog.js", () => ({
 }));
 
 vi.mock("../agents/prepared-model-runtime.js", () => ({
-  advancePreparedModelRuntimeConfig: (cfg: OpenClawConfig) =>
-    hoisted.advancePreparedModelRuntimeConfig(cfg),
+  advancePreparedModelRuntimeConfig: hoisted.advancePreparedModelRuntimeConfig,
   markPreparedModelRuntimeSnapshotsStale: (
     reason?: string,
     options?: { waitForReplacement?: boolean; preserveReplacementWait?: boolean },
@@ -454,8 +439,8 @@ vi.mock("../agents/prepared-model-runtime.js", () => ({
     hoisted.reloadEvents.push("stale-prepared-model-runtime");
     return hoisted.markPreparedModelRuntimeSnapshotsStale(reason, options);
   },
-  rejectPendingPreparedModelRuntimeReplacement: (gateId: symbol | undefined, error: unknown) =>
-    hoisted.rejectPendingPreparedModelRuntimeReplacement(gateId, error),
+  rejectPendingPreparedModelRuntimeReplacement:
+    hoisted.rejectPendingPreparedModelRuntimeReplacement,
   refreshPreparedModelRuntimeSnapshots: (
     cfg: OpenClawConfig,
     options?: { catalogMode?: "live" | "static" },
@@ -466,6 +451,7 @@ vi.mock("../agents/prepared-model-runtime.js", () => ({
 }));
 
 vi.mock("../agents/context.js", () => ({
+  resetContextWindowCache: vi.fn(),
   refreshContextWindowCache: async (cfg: OpenClawConfig) => {
     hoisted.reloadEvents.push("refresh-context-window");
     await hoisted.refreshContextWindowCache(cfg);
@@ -576,24 +562,6 @@ async function withReloadChannelManager(
       expect(outcome.status).toBe("fulfilled");
     }
   }
-}
-
-function makePreparedSecretsSnapshot(
-  config: OpenClawConfig,
-  overrides: Omit<Partial<PreparedSecretsRuntimeSnapshot>, "authStores"> & {
-    authStores?: Parameters<typeof prepareRuntimeAuthProfileStoreSnapshots>[0];
-  } = {},
-): PreparedSecretsRuntimeSnapshot {
-  return {
-    sourceConfig: config,
-    config,
-    authStoreCredentialsRevision: getRuntimeAuthProfileStoreCredentialsRevision(),
-    authStoreSnapshotsRevision: getRuntimeAuthProfileStoreSnapshotsRevision(),
-    warnings: [],
-    webTools: createEmptyRuntimeWebToolsMetadata(),
-    ...overrides,
-    authStores: prepareRuntimeAuthProfileStoreSnapshots(overrides.authStores ?? []),
-  };
 }
 
 function makeActiveTaskBlocker(
@@ -737,7 +705,7 @@ async function createManagedRestartSequenceHarness(
   const unavailableSecretIds = new Set(["MISSING_RESTART_TOKEN", "MISSING_HOT_TOKEN"]);
   let recordPromotion: ((hash: string) => void) | undefined;
   let recordReloadError: ((message: string) => void) | undefined;
-  let recordReloadWarning: ((message: string) => void) | undefined;
+  const reloadWarning = createReloadWarningObserver();
   const { requestRecoveryRestart, restartEmitted } = createRecoveryRestartMock();
   const nextPromotion = () =>
     new Promise<string>((resolve) => {
@@ -747,15 +715,6 @@ async function createManagedRestartSequenceHarness(
     new Promise<string>((resolve) => {
       recordReloadError = resolve;
     });
-  const nextReloadWarning = (text: string) =>
-    new Promise<void>((resolve) => {
-      recordReloadWarning = (message) => {
-        if (message.includes(text)) {
-          recordReloadWarning = undefined;
-          resolve();
-        }
-      };
-    });
   const promoteSnapshot = vi.fn(async (snapshot: { hash?: string }) => {
     recordPromotion?.(snapshot.hash ?? "");
     recordPromotion = undefined;
@@ -763,7 +722,7 @@ async function createManagedRestartSequenceHarness(
   });
   const logReload = {
     info: vi.fn(),
-    warn: vi.fn((message: string) => recordReloadWarning?.(message)),
+    warn: vi.fn(reloadWarning.observe),
     error: vi.fn((message: string) => {
       recordReloadError?.(message);
       recordReloadError = undefined;
@@ -853,7 +812,7 @@ async function createManagedRestartSequenceHarness(
     logReload,
     nextPromotion,
     nextReloadError,
-    nextReloadWarning,
+    nextReloadWarning: reloadWarning.next,
     restartEmitted,
     promoteSnapshot,
     reloader,
@@ -5069,9 +5028,7 @@ describe("gateway Gmail hot reload handlers", () => {
     });
     await reloader.ready;
     const registeredWriteListener = writeListenerRef.current;
-    if (!registeredWriteListener) {
-      throw new Error("Expected config write listener to be registered");
-    }
+    assert(registeredWriteListener, "Expected config write listener to be registered");
 
     try {
       const application = publishConfigWrite(
@@ -5805,9 +5762,7 @@ describe("gateway Gmail hot reload handlers", () => {
     });
     await reloader.ready;
     const registeredWriteListener = writeListenerRef.current;
-    if (!registeredWriteListener) {
-      throw new Error("Expected config write listener to be registered");
-    }
+    assert(registeredWriteListener, "Expected config write listener to be registered");
 
     try {
       registeredWriteListener(
@@ -6174,43 +6129,73 @@ describe("gateway Gmail hot reload handlers", () => {
     }
   });
 
-  it("revalidates deferred restart SecretRefs again before emission and retry", async () => {
-    vi.useFakeTimers();
-    const harness = await createManagedRestartSequenceHarness();
-    hoisted.activeTaskBlockers.push(
-      makeActiveTaskBlocker({ taskId: "restart-emission-preflight-blocker" }),
-    );
-
-    try {
-      const promotion = harness.nextPromotion();
-      harness.writeConfig(harness.deferredConfig, "deferred-emission-preflight", 1);
-      await vi.advanceTimersByTimeAsync(0);
-      await promotion;
-
-      harness.setSecretUnavailable("RESTART_A_TOKEN");
-      hoisted.activeTaskBlockers.length = 0;
-      const retryScheduled = harness.nextReloadWarning(
-        "gateway restart recovery emission failed; retrying",
-      );
-      await vi.advanceTimersByTimeAsync(500);
-      await retryScheduled;
-      expect(harness.requestRecoveryRestart).not.toHaveBeenCalled();
-      expect(harness.assertRestartReady).toHaveBeenCalledOnce();
-      expect(harness.logReload.warn).toHaveBeenCalledWith(
-        expect.stringContaining("gateway restart preflight failed"),
+  it.each([false, true])(
+    "revalidates deferred restart SecretRefs again before emission and retry (held promotion: %s)",
+    async (holdPromotion) => {
+      vi.useFakeTimers();
+      const harness = await createManagedRestartSequenceHarness();
+      const leaseClock = createPluginLifecycleLeaseTestClock();
+      const promotionGate = createDeferred();
+      if (holdPromotion) {
+        const promote = harness.promoteSnapshot.getMockImplementation();
+        assert.isDefined(promote);
+        harness.promoteSnapshot.mockImplementationOnce(async (...args) => {
+          const accepted = await promote(...args);
+          await promotionGate.promise;
+          return accepted;
+        });
+      }
+      hoisted.activeTaskBlockers.push(
+        makeActiveTaskBlocker({ taskId: "restart-emission-preflight-blocker" }),
       );
 
-      harness.setSecretAvailable("RESTART_A_TOKEN");
-      await vi.advanceTimersByTimeAsync(1_000);
-      await harness.restartEmitted;
-      expect(harness.requestRecoveryRestart).toHaveBeenCalledOnce();
-      expect(harness.assertRestartReady).toHaveBeenCalledTimes(2);
-      expect(harness.activateRuntimeSecrets.prepareSnapshot).toHaveBeenCalledTimes(3);
-    } finally {
-      hoisted.activeTaskBlockers.length = 0;
-      await harness.reloader.stop();
-    }
-  });
+      try {
+        const promotion = harness.nextPromotion();
+        harness.writeConfig(harness.deferredConfig, "deferred-emission-preflight", 1);
+        await vi.advanceTimersByTimeAsync(0);
+        await leaseClock.waitFor(promotion);
+
+        harness.setSecretUnavailable("RESTART_A_TOKEN");
+        if (holdPromotion) {
+          expect(getActiveGatewayRootWorkCount()).toBeGreaterThan(0);
+          hoisted.activeTaskBlockers.length = 0;
+          await vi.advanceTimersByTimeAsync(500);
+          expect(harness.assertRestartReady).not.toHaveBeenCalled();
+          expect(harness.logReload.warn).not.toHaveBeenCalledWith(
+            "gateway restart recovery emission failed; retrying",
+          );
+          expect(harness.requestRecoveryRestart).not.toHaveBeenCalled();
+          hoisted.activeTaskBlockers.push(makeActiveTaskBlocker());
+        }
+        promotionGate.resolve();
+        // Restart preparation reacquires the outer plugin lease after reload root admission ends.
+        await leaseClock.waitForFirstLease();
+        expect(harness.assertRestartReady).not.toHaveBeenCalled();
+        hoisted.activeTaskBlockers.length = 0;
+        const retryScheduled = harness.nextReloadWarning(
+          "gateway restart recovery emission failed; retrying",
+        );
+        await vi.advanceTimersByTimeAsync(500);
+        await leaseClock.waitFor(retryScheduled);
+        expect(harness.requestRecoveryRestart).not.toHaveBeenCalled();
+        expect(harness.assertRestartReady).toHaveBeenCalledOnce();
+        expect(harness.logReload.warn).toHaveBeenCalledWith(
+          expect.stringContaining("gateway restart preflight failed"),
+        );
+
+        harness.setSecretAvailable("RESTART_A_TOKEN");
+        await vi.advanceTimersByTimeAsync(1_000);
+        await leaseClock.waitFor(harness.restartEmitted);
+        expect(harness.requestRecoveryRestart).toHaveBeenCalledOnce();
+        expect(harness.assertRestartReady).toHaveBeenCalledTimes(2);
+        expect(harness.activateRuntimeSecrets.prepareSnapshot).toHaveBeenCalledTimes(3);
+      } finally {
+        promotionGate.resolve();
+        hoisted.activeTaskBlockers.length = 0;
+        await harness.reloader.stop();
+      }
+    },
+  );
 
   it("supersedes a blocked emission preflight without marking sessions or signaling", async () => {
     vi.useFakeTimers();
@@ -6399,9 +6384,7 @@ describe("gateway Gmail hot reload handlers", () => {
     });
     await reloader.ready;
     const registeredWriteListener = writeListenerRef.current;
-    if (!registeredWriteListener) {
-      throw new Error("Expected config write listener to be registered");
-    }
+    assert(registeredWriteListener, "Expected config write listener to be registered");
 
     registeredWriteListener(
       createConfigWriteNotification(
@@ -6456,9 +6439,7 @@ describe("gateway Gmail hot reload handlers", () => {
     });
     await reloader.ready;
     const registeredWriteListener = writeListenerRef.current;
-    if (!registeredWriteListener) {
-      throw new Error("Expected config write listener to be registered");
-    }
+    assert(registeredWriteListener, "Expected config write listener to be registered");
 
     registeredWriteListener(
       createConfigWriteNotification(
@@ -6502,9 +6483,7 @@ describe("gateway Gmail hot reload handlers", () => {
       await reloader.ready;
       try {
         const registeredWriteListener = writeListenerRef.current;
-        if (!registeredWriteListener) {
-          throw new Error("Expected config write listener to be registered");
-        }
+        assert(registeredWriteListener, "Expected config write listener to be registered");
 
         const application = publishConfigWrite(
           registeredWriteListener,
@@ -6550,9 +6529,7 @@ describe("gateway Gmail hot reload handlers", () => {
     });
     await reloader.ready;
     const registeredWriteListener = writeListenerRef.current;
-    if (!registeredWriteListener) {
-      throw new Error("Expected config write listener to be registered");
-    }
+    assert(registeredWriteListener, "Expected config write listener to be registered");
 
     registeredWriteListener(
       createConfigWriteNotification(
@@ -7384,8 +7361,11 @@ describe("deferred channel reload abort generation", () => {
       const settled = vi.fn();
       void application.result.then(settled);
       const deferralStarted = createDeferred();
+      const replayDeferralStarted = createDeferred();
       const logReload = createInfoWarnErrorLogger();
-      logReload.warn.mockImplementation(() => deferralStarted.resolve());
+      logReload.warn
+        .mockImplementation(() => replayDeferralStarted.resolve())
+        .mockImplementationOnce(() => deferralStarted.resolve());
       const watch = vi.spyOn(chokidar, "watch");
       setActivePluginRegistry(registry);
       const reloader = startManagedGatewayConfigReloader({
@@ -7400,9 +7380,7 @@ describe("deferred channel reload abort generation", () => {
       });
       await reloader.ready;
       const registeredWriteListener = writeListenerRef.current;
-      if (!registeredWriteListener) {
-        throw new Error("Expected config write listener to be registered");
-      }
+      assert(registeredWriteListener, "Expected config write listener to be registered");
       const unrelatedRequest = tryBeginGatewayRootWorkAdmission();
       if (!unrelatedRequest) {
         throw new Error("Expected unrelated gateway request admission");
@@ -7460,6 +7438,13 @@ describe("deferred channel reload abort generation", () => {
           snapshotGate.resolve();
           await vi.advanceTimersByTimeAsync(0);
           if (outcome !== "newer content") {
+            // Timer advancement does not join the reloader's detached replay.
+            await Promise.race([
+              replayDeferralStarted.promise,
+              application.result.then((result) => {
+                throw new Error(`Reload receipt settled before replay deferred: ${result}`);
+              }),
+            ]);
             expect(settled).not.toHaveBeenCalled();
             expect(setState).not.toHaveBeenCalled();
             expect(logReload.warn).toHaveBeenCalledTimes(2);
