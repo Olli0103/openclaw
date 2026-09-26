@@ -1,11 +1,6 @@
 import path from "node:path";
 import { UpdatePreMutationError } from "../cli/update-cli/shared.js";
-import { isBunRuntime, isNodeRuntime } from "../daemon/runtime-binary.js";
-import {
-  resolveBunRuntimeInfo,
-  resolveNodeRuntimeInfo,
-  resolveSystemNodeInfo,
-} from "../daemon/runtime-paths.js";
+import { resolveNodeRuntimeInfo, resolveSystemNodeInfo } from "../daemon/runtime-paths.js";
 import { buildCliRespawnPlan } from "../entry.respawn.js";
 import {
   isExecutableFile,
@@ -21,18 +16,17 @@ class ManagedHandoffNodeUnavailableError extends UpdatePreMutationError {
   constructor() {
     super(
       "managed-service-handoff-failed",
-      `The Gateway's Node executable was removed and no compatible replacement was found. Install a supported Node. ${RUNTIME_RECOVERY_ACTION}`,
+      `The Gateway's Node executable ${JSON.stringify(process.execPath)} was removed and no compatible replacement was found. Install a supported Node. ${RUNTIME_RECOVERY_ACTION}`,
     );
     this.name = "ManagedHandoffNodeUnavailableError";
   }
 }
 
 class ManagedHandoffServiceRuntimeUnavailableError extends UpdatePreMutationError {
-  constructor(cause?: unknown) {
+  constructor(executable: string) {
     super(
       "managed-service-handoff-failed",
-      `The Gateway's service definition could not be verified with an available executable. ${RUNTIME_RECOVERY_ACTION}`,
-      { cause },
+      `The Gateway's service executable ${JSON.stringify(executable)} is unavailable. ${RUNTIME_RECOVERY_ACTION}`,
     );
     this.name = "ManagedHandoffServiceRuntimeUnavailableError";
   }
@@ -63,34 +57,18 @@ async function assertManagedHandoffServiceRuntime(
             ).readScheduledTaskCommand(env, {
               requireEffective: true,
             });
-  } catch (cause) {
-    throw new ManagedHandoffServiceRuntimeUnavailableError(cause);
+  } catch (error) {
+    console.warn(`[update] Could not inspect the managed service; continuing: ${String(error)}`);
+    return;
   }
-  const args = command?.programArguments ?? [];
-  const executable = args[0];
-  const gatewayIndex = args.indexOf("gateway");
-  const entrypoint = args[gatewayIndex - 1];
-  const nodeRuntime = executable ? isNodeRuntime(executable) : false;
-  const bunRuntime = executable ? isBunRuntime(executable) : false;
-  // A supported service wrapper has the shape [wrapper, "gateway", ...]. Its
-  // executable can be healthy while its hidden Node path is gone. Only a direct
-  // runtime + CLI entrypoint can be verified before parking the serving Gateway.
-  if (
-    !executable ||
-    !resolveExecutablePath(executable, { env, useCache: false }) ||
-    gatewayIndex < 2 ||
-    !entrypoint ||
-    !path.isAbsolute(entrypoint) ||
-    !/\.(?:[cm]?js|ts)$/iu.test(entrypoint) ||
-    (!nodeRuntime && !bunRuntime)
-  ) {
-    throw new ManagedHandoffServiceRuntimeUnavailableError();
+  const executable = command?.programArguments[0];
+  if (!executable) {
+    console.warn("[update] No managed service command was available to inspect; continuing.");
   }
-  const runtime = bunRuntime
-    ? await resolveBunRuntimeInfo(executable, undefined, env)
-    : await resolveNodeRuntimeInfo(executable, env);
-  if (runtime.status !== "supported") {
-    throw new ManagedHandoffServiceRuntimeUnavailableError();
+  // Wrappers own runtime resolution. A missing saved Node does not establish
+  // that an executable wrapper can no longer restart the Gateway.
+  if (executable && !resolveExecutablePath(executable, { env, useCache: false })) {
+    throw new ManagedHandoffServiceRuntimeUnavailableError(executable);
   }
 }
 

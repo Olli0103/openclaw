@@ -578,17 +578,15 @@ describe("managed service update handoff", () => {
     expect(child.stdout.destroyed).toBe(true);
   });
 
-  it.runIf(process.platform === "darwin").each(["node", "nodejs", "node24.20.0"])(
-    "replaces a removed Gateway Node path when the %s service definition remains runnable",
-    async (serviceRuntimeName) => {
+  it.runIf(process.platform === "darwin")(
+    "replaces a removed Gateway Node path when the versioned service runtime remains runnable",
+    async () => {
       const home = nodeTempDirs.make("openclaw-handoff-node-");
       const originalExecPath = process.execPath;
       const replacement = path.join(home, "node");
-      const serviceRuntime = path.join(home, serviceRuntimeName);
+      const serviceRuntime = path.join(home, "node24.20.0");
       await fs.symlink(originalExecPath, replacement);
-      if (serviceRuntime !== replacement) {
-        await fs.symlink(originalExecPath, serviceRuntime);
-      }
+      await fs.symlink(originalExecPath, serviceRuntime);
       const runtimePaths = await import("../daemon/runtime-paths.js");
       const launchdRuntime = await import("../daemon/launchd-runtime.js");
       const probe = vi.spyOn(runtimePaths, "resolveSystemNodeInfo").mockResolvedValue({
@@ -700,10 +698,8 @@ describe("managed service update handoff", () => {
             supervisor: "launchd",
             meta: { sessionKey: "agent:test:webchat:dm:user-123" },
           }),
-        ).rejects.toThrow("The Gateway's service definition could not be verified");
-        expect(service).toHaveBeenCalledWith(
-          { HOME: home, PATH: home },
-          { requireEffective: true },
+        ).rejects.toThrow(
+          `The Gateway's service executable ${JSON.stringify(removed)} is unavailable`,
         );
         expect(spawnMock).not.toHaveBeenCalled();
       } finally {
@@ -715,7 +711,7 @@ describe("managed service update handoff", () => {
   );
 
   it.runIf(process.platform === "darwin")(
-    "refuses an executable service wrapper with a removed inner Node before parking",
+    "starts the handoff through an executable service wrapper after the saved Node disappears",
     async () => {
       const home = nodeTempDirs.make("openclaw-handoff-stale-wrapper-");
       const originalExecPath = process.execPath;
@@ -725,7 +721,7 @@ describe("managed service update handoff", () => {
       await fs.symlink(originalExecPath, replacement);
       await fs.writeFile(
         wrapper,
-        `#!/bin/sh\nexec '${removed}' /opt/openclaw/openclaw.mjs "$@"\n`,
+        `#!/bin/sh\nexec '${replacement}' /opt/openclaw/openclaw.mjs "$@"\n`,
         { mode: 0o755 },
       );
       const runtimePaths = await import("../daemon/runtime-paths.js");
@@ -755,12 +751,10 @@ describe("managed service update handoff", () => {
             supervisor: "launchd",
             meta: { sessionKey: "agent:test:webchat:dm:user-123" },
           }),
-        ).rejects.toThrow("The Gateway's service definition could not be verified");
-        expect(service).toHaveBeenCalledWith(
-          { HOME: home, PATH: home },
-          { requireEffective: true },
-        );
-        expect(spawnMock).not.toHaveBeenCalled();
+        ).resolves.toMatchObject({ status: "started" });
+        const [command, args] = spawnMock.mock.calls[0] as unknown as [string, string[]];
+        tempDirs.add(path.dirname(expectDefined(args[0], "handoff script")));
+        expect(command).toBe(replacement);
       } finally {
         process.execPath = originalExecPath;
         probe.mockRestore();
