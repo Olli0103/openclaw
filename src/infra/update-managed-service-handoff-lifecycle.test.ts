@@ -583,20 +583,11 @@ describe("managed service update handoff", () => {
     async () => {
       const home = nodeTempDirs.make("openclaw-handoff-node-");
       const originalExecPath = process.execPath;
-      const replacement = path.join(home, "node");
       const serviceRuntime = path.join(home, "node24.20.0");
-      await fs.symlink(originalExecPath, replacement);
       await fs.symlink(originalExecPath, serviceRuntime);
       const runtimePaths = await import("../daemon/runtime-paths.js");
       const launchdRuntime = await import("../daemon/launchd-runtime.js");
-      const probe = vi.spyOn(runtimePaths, "resolveSystemNodeInfo").mockResolvedValue({
-        path: replacement,
-        status: "supported",
-        version: process.versions.node,
-        sqliteVersion: "3.51.0",
-        nodeSharedSqlite: false,
-        sqliteProbe: { available: true, version: "3.51.0", text: true, blob: true, json: true },
-      });
+      const probe = vi.spyOn(runtimePaths, "resolveSystemNodeInfo").mockResolvedValue(null);
       const service = vi
         .spyOn(launchdRuntime, "readLaunchAgentProgramArguments")
         .mockResolvedValue({
@@ -618,7 +609,7 @@ describe("managed service update handoff", () => {
         expect(result.status).toBe("started");
         const [command, args] = spawnMock.mock.calls[0] as unknown as [string, string[]];
         tempDirs.add(path.dirname(expectDefined(args[0], "handoff script")));
-        expect(command).toBe(replacement);
+        expect(command).toBe(serviceRuntime);
         const helperParams = JSON.parse(
           await fs.readFile(expectDefined(args[1], "handoff parameters"), "utf8"),
         ) as {
@@ -626,9 +617,9 @@ describe("managed service update handoff", () => {
           recoveryCommandArgv: string[];
           triageCommandArgv: string[];
         };
-        expect(helperParams.commandArgv[0]).toBe(replacement);
-        expect(helperParams.recoveryCommandArgv[0]).toBe(replacement);
-        expect(helperParams.triageCommandArgv[0]).toBe(replacement);
+        expect(helperParams.commandArgv[0]).toBe(serviceRuntime);
+        expect(helperParams.recoveryCommandArgv[0]).toBe(serviceRuntime);
+        expect(helperParams.triageCommandArgv[0]).toBe(serviceRuntime);
       } finally {
         process.execPath = originalExecPath;
         probe.mockRestore();
@@ -653,7 +644,7 @@ describe("managed service update handoff", () => {
           env: { PATH: "" },
           meta: { sessionKey: "agent:test:webchat:dm:user-123" },
         }),
-      ).rejects.toThrow("The serving Gateway has not been stopped.");
+      ).rejects.toThrow("openclaw gateway install --force");
       expect(spawnMock).not.toHaveBeenCalled();
     } finally {
       process.execPath = originalExecPath;
@@ -661,24 +652,36 @@ describe("managed service update handoff", () => {
     }
   });
 
-  it.runIf(process.platform === "darwin")(
-    "refuses a removed service-definition Node before parking despite a healthy helper Node",
-    async () => {
+  it.runIf(process.platform === "darwin").each([true, false])(
+    "recovers a missing direct-service Node only with a supported replacement (available=%s)",
+    async (available) => {
       const home = nodeTempDirs.make("openclaw-handoff-stale-service-");
       const originalExecPath = process.execPath;
-      const replacement = path.join(home, "node");
-      await fs.symlink(originalExecPath, replacement);
-      const removed = path.join(home, "removed-node");
+      const replacement = path.join(home, "node24.20.0");
+      if (available) {
+        await fs.symlink(originalExecPath, replacement);
+      }
+      const removed = path.join(home, "old", "node");
       const runtimePaths = await import("../daemon/runtime-paths.js");
       const launchdRuntime = await import("../daemon/launchd-runtime.js");
-      const probe = vi.spyOn(runtimePaths, "resolveSystemNodeInfo").mockResolvedValue({
-        path: replacement,
-        status: "supported",
-        version: process.versions.node,
-        sqliteVersion: "3.51.0",
-        nodeSharedSqlite: false,
-        sqliteProbe: { available: true, version: "3.51.0", text: true, blob: true, json: true },
-      });
+      const probe = vi.spyOn(runtimePaths, "resolveSystemNodeInfo").mockResolvedValue(
+        available
+          ? {
+              path: replacement,
+              status: "supported",
+              version: process.versions.node,
+              sqliteVersion: "3.51.0",
+              nodeSharedSqlite: false,
+              sqliteProbe: {
+                available: true,
+                version: "3.51.0",
+                text: true,
+                blob: true,
+                json: true,
+              },
+            }
+          : null,
+      );
       const service = vi
         .spyOn(launchdRuntime, "readLaunchAgentProgramArguments")
         .mockResolvedValue({
@@ -688,20 +691,25 @@ describe("managed service update handoff", () => {
       try {
         const { startManagedServiceUpdateHandoff } =
           await import("./update-managed-service-handoff.js");
-        await expect(
-          startManagedServiceUpdateHandoff({
-            root: MOCK_INSTALL_ROOT,
-            restartDrainTimeoutMs: 300_000,
-            parentPid: process.pid,
-            argv1: "/opt/openclaw/openclaw.mjs",
-            env: { HOME: home, PATH: home },
-            supervisor: "launchd",
-            meta: { sessionKey: "agent:test:webchat:dm:user-123" },
-          }),
-        ).rejects.toThrow(
-          `The Gateway's service executable ${JSON.stringify(removed)} is unavailable`,
-        );
-        expect(spawnMock).not.toHaveBeenCalled();
+        const handoff = startManagedServiceUpdateHandoff({
+          root: MOCK_INSTALL_ROOT,
+          restartDrainTimeoutMs: 300_000,
+          parentPid: process.pid,
+          argv1: "/opt/openclaw/openclaw.mjs",
+          env: { HOME: home, PATH: home },
+          supervisor: "launchd",
+          meta: { sessionKey: "agent:test:webchat:dm:user-123" },
+        });
+        if (available) {
+          await expect(handoff).resolves.toMatchObject({ status: "started" });
+          const [command, args] = spawnMock.mock.calls[0] as unknown as [string, string[]];
+          tempDirs.add(path.dirname(expectDefined(args[0], "handoff script")));
+          expect(command).toBe(replacement);
+        } else {
+          await expect(handoff).rejects.toThrow(removed);
+          await expect(handoff).rejects.toThrow("openclaw gateway install --force");
+          expect(spawnMock).not.toHaveBeenCalled();
+        }
       } finally {
         process.execPath = originalExecPath;
         probe.mockRestore();

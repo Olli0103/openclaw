@@ -36,9 +36,9 @@ class ManagedHandoffServiceRuntimeUnavailableError extends UpdatePreMutationErro
 async function assertManagedHandoffServiceRuntime(
   supervisor: RespawnSupervisor | null | undefined,
   env: NodeJS.ProcessEnv,
-): Promise<void> {
+): Promise<string | undefined> {
   if (!supervisor) {
-    return; // A foreground Gateway has no native service to restart.
+    return undefined; // A foreground Gateway has no native service to restart.
   }
   let command: { programArguments: string[] } | null;
   try {
@@ -66,9 +66,6 @@ async function assertManagedHandoffServiceRuntime(
   const executable = args[0];
   const gatewayIndex = args.indexOf("gateway");
   const entrypoint = args[gatewayIndex - 1];
-  if (executable && !resolveExecutablePath(executable, { env, useCache: false })) {
-    throw new ManagedHandoffServiceRuntimeUnavailableError(executable);
-  }
   if (
     !executable ||
     !isNodeRuntime(executable) ||
@@ -82,6 +79,11 @@ async function assertManagedHandoffServiceRuntime(
       `The Gateway's saved Node executable ${JSON.stringify(process.execPath)} is unavailable. Automatic runtime replacement requires a directly launched Node service; wrapper recovery requires its installation owner to repair the wrapper's runtime first. ${RUNTIME_RECOVERY_ACTION}`,
     );
   }
+  const serviceNode = resolveExecutablePath(executable, { env, useCache: false });
+  if (serviceNode && (await resolveNodeRuntimeInfo(serviceNode, env)).status !== "supported") {
+    throw new ManagedHandoffServiceRuntimeUnavailableError(serviceNode);
+  }
+  return serviceNode;
 }
 
 /** The original Gateway executable may disappear while its process stays alive. */
@@ -92,7 +94,10 @@ export async function resolveManagedHandoffNodeExecutable(
   if (isExecutableFile(process.execPath, { env })) {
     return process.execPath;
   }
-  await assertManagedHandoffServiceRuntime(supervisor, env);
+  const serviceNode = await assertManagedHandoffServiceRuntime(supervisor, env);
+  if (serviceNode) {
+    return serviceNode;
+  }
   const systemNode = await resolveSystemNodeInfo({ env });
   let replacement = systemNode?.status === "supported" ? systemNode.path : undefined;
   if (!replacement) {
