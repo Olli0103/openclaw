@@ -1,5 +1,6 @@
 import path from "node:path";
 import { UpdatePreMutationError } from "../cli/update-cli/shared.js";
+import { isNodeRuntime } from "../daemon/runtime-binary.js";
 import { resolveNodeRuntimeInfo, resolveSystemNodeInfo } from "../daemon/runtime-paths.js";
 import { buildCliRespawnPlan } from "../entry.respawn.js";
 import {
@@ -58,17 +59,28 @@ async function assertManagedHandoffServiceRuntime(
               requireEffective: true,
             });
   } catch (error) {
-    console.warn(`[update] Could not inspect the managed service; continuing: ${String(error)}`);
-    return;
+    console.warn(`[update] Could not inspect the managed service: ${String(error)}`);
+    command = null;
   }
-  const executable = command?.programArguments[0];
-  if (!executable) {
-    console.warn("[update] No managed service command was available to inspect; continuing.");
-  }
-  // Wrappers own runtime resolution. A missing saved Node does not establish
-  // that an executable wrapper can no longer restart the Gateway.
+  const args = command?.programArguments ?? [];
+  const executable = args[0];
+  const gatewayIndex = args.indexOf("gateway");
+  const entrypoint = args[gatewayIndex - 1];
   if (executable && !resolveExecutablePath(executable, { env, useCache: false })) {
     throw new ManagedHandoffServiceRuntimeUnavailableError(executable);
+  }
+  if (
+    !executable ||
+    !isNodeRuntime(executable) ||
+    gatewayIndex < 2 ||
+    !entrypoint ||
+    !path.isAbsolute(entrypoint) ||
+    !/\.(?:[cm]?js|ts)$/iu.test(entrypoint)
+  ) {
+    throw new UpdatePreMutationError(
+      "managed-service-handoff-failed",
+      `The Gateway's saved Node executable ${JSON.stringify(process.execPath)} is unavailable. Automatic runtime replacement requires a directly launched Node service; wrapper recovery requires its installation owner to repair the wrapper's runtime first. ${RUNTIME_RECOVERY_ACTION}`,
+    );
   }
 }
 
@@ -80,6 +92,7 @@ export async function resolveManagedHandoffNodeExecutable(
   if (isExecutableFile(process.execPath, { env })) {
     return process.execPath;
   }
+  await assertManagedHandoffServiceRuntime(supervisor, env);
   const systemNode = await resolveSystemNodeInfo({ env });
   let replacement = systemNode?.status === "supported" ? systemNode.path : undefined;
   if (!replacement) {
@@ -94,9 +107,6 @@ export async function resolveManagedHandoffNodeExecutable(
   if (!replacement) {
     throw new ManagedHandoffNodeUnavailableError();
   }
-  // The helper may run under the replacement while a preserved native definition
-  // still points at the removed path. Never park that service until it can restart.
-  await assertManagedHandoffServiceRuntime(supervisor, env);
   return replacement;
 }
 

@@ -710,9 +710,9 @@ describe("managed service update handoff", () => {
     },
   );
 
-  it.runIf(process.platform === "darwin")(
-    "starts the handoff through an executable service wrapper after the saved Node disappears",
-    async () => {
+  it.runIf(process.platform === "darwin").each([true, false])(
+    "preserves wrapper handoff behavior when the saved Node is missing=%s",
+    async (missing) => {
       const home = nodeTempDirs.make("openclaw-handoff-stale-wrapper-");
       const originalExecPath = process.execPath;
       const replacement = path.join(home, "node");
@@ -737,24 +737,32 @@ describe("managed service update handoff", () => {
       const service = vi
         .spyOn(launchdRuntime, "readLaunchAgentProgramArguments")
         .mockResolvedValue({ programArguments: [wrapper, "gateway", "--port", "18789"] });
-      process.execPath = removed;
+      process.execPath = missing ? removed : originalExecPath;
+      const beforePark = vi.fn(async () => {});
       try {
         const { startManagedServiceUpdateHandoff } =
           await import("./update-managed-service-handoff.js");
-        await expect(
-          startManagedServiceUpdateHandoff({
-            root: MOCK_INSTALL_ROOT,
-            restartDrainTimeoutMs: 300_000,
-            parentPid: process.pid,
-            argv1: "/opt/openclaw/openclaw.mjs",
-            env: { HOME: home, PATH: home },
-            supervisor: "launchd",
-            meta: { sessionKey: "agent:test:webchat:dm:user-123" },
-          }),
-        ).resolves.toMatchObject({ status: "started" });
-        const [command, args] = spawnMock.mock.calls[0] as unknown as [string, string[]];
-        tempDirs.add(path.dirname(expectDefined(args[0], "handoff script")));
-        expect(command).toBe(replacement);
+        const handoff = startManagedServiceUpdateHandoff({
+          root: MOCK_INSTALL_ROOT,
+          restartDrainTimeoutMs: 300_000,
+          parentPid: process.pid,
+          argv1: "/opt/openclaw/openclaw.mjs",
+          env: { HOME: home, PATH: home },
+          supervisor: "launchd",
+          beforePark,
+          meta: { sessionKey: "agent:test:webchat:dm:user-123" },
+        });
+        if (missing) {
+          await expect(handoff).rejects.toThrow(removed);
+          await expect(handoff).rejects.toThrow("openclaw gateway install --force");
+          expect(spawnMock).not.toHaveBeenCalled();
+          expect(beforePark).not.toHaveBeenCalled();
+        } else {
+          await expect(handoff).resolves.toMatchObject({ status: "started" });
+          const [command, args] = spawnMock.mock.calls[0] as unknown as [string, string[]];
+          tempDirs.add(path.dirname(expectDefined(args[0], "handoff script")));
+          expect(command).toBe(originalExecPath);
+        }
       } finally {
         process.execPath = originalExecPath;
         probe.mockRestore();
