@@ -179,7 +179,7 @@ describe("collectStatusScanOverview", () => {
   it("uses gateway fallback overrides for channels.status when requested", async () => {
     const result = await collectStatusScanOverview({
       commandName: "status --all",
-      opts: createStatusGatewayProbeBudget(1234),
+      opts: { ...createStatusGatewayProbeBudget(1234), deep: true },
       showSecrets: false,
       useGatewayCallOverridesForChannelsStatus: true,
     });
@@ -230,6 +230,7 @@ describe("collectStatusScanOverview", () => {
     expect(channelTableCall?.[1]?.showSecrets).toBe(false);
     expect(channelTableCall?.[1]?.sourceConfig).toStrictEqual({ session: { raw: true } });
     expect(result.channelIssues).toStrictEqual([]);
+    expect(result.runtimeDegradation).not.toHaveProperty("childRuntime");
   });
 
   it("skips channels.status when the gateway is unreachable", async () => {
