@@ -19,6 +19,14 @@ transient runs are never restored from them.
 
 ## Legacy state migration
 
+When Doctor selects a legacy home such as `~/.clawdbot`, it drains open database
+work before moving that directory to `~/.openclaw`. It retains exclusive source
+ownership through the move and legacy alias creation, then acquires ownership at
+the resulting path before importing plugin metadata or upgrading SQLite schemas.
+An explicit `OPENCLAW_STATE_DIR` keeps its selected location. If alias creation
+fails and the move rolls back, repair continues under ownership of the original
+location and reports the rollback.
+
 `openclaw doctor --fix` owns general persistent file-to-SQLite migrations. It validates and claims each recognized source, writes and verifies canonical rows, records a migration receipt, then removes the retired source. Gateway, node-host, and local CLI startup leave general legacy repair to Doctor. Normal versioned database opening, native initialization, and recovery of valid current config remain available. The narrow [restart-notice importer](/gateway/restart-recovery#agent-requested-restarts) also serves the late update notices written by shipped June updaters, through the same migration owner and receipts.
 
 The container image entrypoint automatically runs `openclaw doctor --fix --non-interactive`
@@ -78,6 +86,11 @@ rollback, and backup records remain read-only inventory. Doctor reports how many
 legacy workspace files it left untouched; it does not retire their files or
 proposal history. After the candidate is installed, the real Doctor runs the
 normal import, archival, and relocation against the operator's state.
+
+Plugin migrations with declared files outside the copied state are deferred as
+one plugin operation. Doctor leaves their files and pending markers intact and
+reports the deferral; configuration repair still runs. Reef's legacy directory
+follows this rule, including its archived files.
 
 Completed agent deletions that intentionally kept their files are held back during
 update and migration discovery. Doctor records a recoverable warning naming the

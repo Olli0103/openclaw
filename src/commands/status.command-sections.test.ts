@@ -368,7 +368,7 @@ describe("status.command-sections", () => {
     expect(rows).toContainEqual({ Item: "WhatsApp", Status: status, Detail: detail });
   });
 
-  it("marks activated plugin service failures as warnings in deep health rows", () => {
+  it("marks colon-bearing plugin failures and unavailable plugins as warnings in deep health rows", () => {
     const health: HealthSummary = {
       ok: true,
       ts: 0,
@@ -381,14 +381,25 @@ describe("status.command-sections", () => {
       channelOrder: [],
       channelLabels: {},
       plugins: {
-        loaded: ["calendar"],
+        loaded: ["broken:ok"],
         errors: [
           {
-            id: "calendar",
+            id: "broken:ok",
             origin: "workspace",
             activated: true,
             failurePhase: "service",
             error: "service scheduler: address already in use",
+          },
+        ],
+        unavailable: [
+          {
+            id: "memory-owner",
+            state: "configured-unavailable",
+            diagnostic: {
+              kind: "plugin-verification",
+              reason: "unreadable-package-json",
+              detail: "manifest unreadable",
+            },
           },
         ],
       },
@@ -402,9 +413,14 @@ describe("status.command-sections", () => {
     });
 
     expect(rows).toContainEqual({
-      Item: "Plugin calendar",
+      Item: "Plugin",
       Status: "warn(WARN)",
-      Detail: "failed - service scheduler: address already in use; run openclaw doctor",
+      Detail: "failed - broken:ok: service scheduler: address already in use; run openclaw doctor",
+    });
+    expect(rows).toContainEqual({
+      Item: "Plugin memory-owner",
+      Status: "warn(WARN)",
+      Detail: expect.stringContaining("unavailable - unreadable-package-json: manifest unreadable"),
     });
   });
 
