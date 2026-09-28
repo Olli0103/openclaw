@@ -3,25 +3,23 @@ import type * as ProviderStreamFamily from "openclaw/plugin-sdk/provider-stream-
 import { describe, expect, it, vi } from "vitest";
 import openrouterPlugin from "./index.js";
 
+const loadedCapabilities = vi.hoisted(
+  () =>
+    new Map<
+      string,
+      { compat?: { supportedReasoningEfforts?: string[] }; thinkingLevelMap?: { off: null } }
+    >(),
+);
+
 vi.mock("openclaw/plugin-sdk/provider-stream-family", async (importOriginal) => ({
   ...(await importOriginal<typeof ProviderStreamFamily>()),
-  getOpenRouterModelCapabilities: (modelId: string) =>
-    modelId.startsWith("anthropic/claude-")
-      ? {
-          name: "Anthropic: Claude Opus 5.5",
-          reasoning: true,
-          compat: {
-            supportsReasoningEffort: true,
-            supportedReasoningEfforts: ["max", "xhigh", "high", "medium", "low"],
-          },
-          thinkingLevelMap: { off: null },
-          input: ["text", "image"],
-          cost: { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
-          contextWindow: 1_000_000,
-          maxTokens: 128_000,
-        }
-      : undefined,
+  getLoadedOpenRouterModelCapabilities: (modelId: string) => loadedCapabilities.get(modelId),
 }));
+
+const opusCapabilities = {
+  compat: { supportedReasoningEfforts: ["max", "xhigh", "high", "medium", "low"] },
+  thinkingLevelMap: { off: null },
+};
 
 describe("OpenRouter configured model capability ownership", () => {
   it.each([
@@ -106,7 +104,7 @@ describe("OpenRouter configured model capability ownership", () => {
       levels: ["low", "medium", "high", "xhigh", "max"],
     },
     {
-      name: "row before runtime model resolution",
+      name: "row whose catalog capabilities are not loaded",
       modelId: "anthropic/claude-sonnet-5.5",
       route: {},
       levels: undefined,
@@ -122,12 +120,9 @@ describe("OpenRouter configured model capability ownership", () => {
       levels: ["off", "low", "high"],
     },
   ])("resolves thinking levels for the $name", async ({ modelId, route, levels }) => {
+    loadedCapabilities.clear();
+    loadedCapabilities.set("anthropic/claude-opus-5.5", opusCapabilities);
     const provider = await registerSingleProviderPlugin(openrouterPlugin);
-    // Session reads must not load the catalog store; runtime resolution records its facts.
-    provider.resolveDynamicModel?.({
-      provider: "openrouter",
-      modelId: "anthropic/claude-opus-5.5",
-    } as never);
     const profile = provider.resolveThinkingProfile?.({
       provider: "openrouter",
       modelId: modelId ?? "anthropic/claude-opus-5.5",
@@ -137,5 +132,30 @@ describe("OpenRouter configured model capability ownership", () => {
       ...route,
     });
     expect(profile?.levels.map((level) => level.id)).toEqual(levels);
+  });
+
+  it("follows the loaded catalog from a cold start through refreshes", async () => {
+    loadedCapabilities.clear();
+    const provider = await registerSingleProviderPlugin(openrouterPlugin);
+    const resolveLevels = () =>
+      provider
+        .resolveThinkingProfile?.({
+          provider: "openrouter",
+          modelId: "anthropic/claude-opus-5.5",
+          api: "openai-completions",
+          baseUrl: "https://openrouter.ai/api/v1",
+          reasoning: true,
+        })
+        ?.levels.map((level) => level.id);
+
+    // A cold cache keeps the configured row's own profile.
+    expect(resolveLevels()).toBeUndefined();
+    loadedCapabilities.set("anthropic/claude-opus-5.5", opusCapabilities);
+    expect(resolveLevels()).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    loadedCapabilities.set("anthropic/claude-opus-5.5", {
+      ...opusCapabilities,
+      compat: { supportedReasoningEfforts: ["high", "medium", "low"] },
+    });
+    expect(resolveLevels()).toEqual(["low", "medium", "high"]);
   });
 });

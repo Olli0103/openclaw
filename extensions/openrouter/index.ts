@@ -15,6 +15,7 @@ import {
   DEFAULT_CONTEXT_TOKENS,
 } from "openclaw/plugin-sdk/provider-model-shared";
 import {
+  getLoadedOpenRouterModelCapabilities,
   getOpenRouterModelCapabilities,
   loadOpenRouterModelCapabilities,
 } from "openclaw/plugin-sdk/provider-stream-family";
@@ -70,13 +71,6 @@ function isOpenRouterCatalogRoute(route: {
   );
 }
 
-// Thinking profiles run on synchronous session reads, so they only consume
-// capabilities that runtime model resolution already loaded.
-const resolvedModelCapabilities = new Map<
-  string,
-  Pick<ProviderRuntimeModel, "compat" | "thinkingLevelMap">
->();
-
 function withOpenRouterCatalogThinking(
   ctx: ProviderDefaultThinkingPolicyContext,
 ): ProviderDefaultThinkingPolicyContext {
@@ -88,7 +82,9 @@ function withOpenRouterCatalogThinking(
   ) {
     return ctx;
   }
-  const capabilities = resolvedModelCapabilities.get(
+  // Thinking profiles run on synchronous session reads, so they only consume
+  // catalog capabilities already loaded in memory.
+  const capabilities = getLoadedOpenRouterModelCapabilities(
     normalizeOpenRouterApiModelId(ctx.modelId) ?? ctx.modelId,
   );
   if (!capabilities?.compat && !capabilities?.thinkingLevelMap) {
@@ -275,12 +271,6 @@ export default defineSingleProviderPluginEntry({
     ): ProviderRuntimeModel {
       const apiModelId = normalizeOpenRouterApiModelId(ctx.modelId) ?? ctx.modelId;
       const capabilities = getOpenRouterModelCapabilities(apiModelId);
-      if (capabilities) {
-        resolvedModelCapabilities.set(apiModelId, {
-          compat: capabilities.compat,
-          thinkingLevelMap: capabilities.thinkingLevelMap,
-        });
-      }
       return {
         id: ctx.modelId,
         name: capabilities?.name ?? ctx.modelId,
