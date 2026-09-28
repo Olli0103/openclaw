@@ -81,8 +81,7 @@ it("shows the excluded session source in human and JSON status", async () => {
   mockManager();
   const json = spyRuntimeJson(defaultRuntime);
   await runStatus(true);
-  expect(
-    firstWrittenJsonArg<Array<{ excludedConfiguredSources?: string[] }>>(json)[0]
-      ?.excludedConfiguredSources,
-  ).toEqual(["sessions"]);
+  expect(firstWrittenJsonArg(json)).toEqual([
+    expect.objectContaining({ excludedConfiguredSources: ["sessions"] }),
+  ]);
 });
