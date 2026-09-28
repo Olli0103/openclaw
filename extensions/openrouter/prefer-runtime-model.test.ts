@@ -6,7 +6,7 @@ import openrouterPlugin from "./index.js";
 vi.mock("openclaw/plugin-sdk/provider-stream-family", async (importOriginal) => ({
   ...(await importOriginal<typeof ProviderStreamFamily>()),
   getOpenRouterModelCapabilities: (modelId: string) =>
-    modelId === "anthropic/claude-opus-5.5"
+    modelId.startsWith("anthropic/claude-")
       ? {
           name: "Anthropic: Claude Opus 5.5",
           reasoning: true,
@@ -106,6 +106,12 @@ describe("OpenRouter configured model capability ownership", () => {
       levels: ["low", "medium", "high", "xhigh", "max"],
     },
     {
+      name: "row before runtime model resolution",
+      modelId: "anthropic/claude-sonnet-5.5",
+      route: {},
+      levels: undefined,
+    },
+    {
       name: "custom route",
       route: { baseUrl: "https://private.example.invalid/v1" },
       levels: undefined,
@@ -115,11 +121,16 @@ describe("OpenRouter configured model capability ownership", () => {
       route: { compat: { supportedReasoningEfforts: ["low", "high"] } },
       levels: ["off", "low", "high"],
     },
-  ])("resolves thinking levels for the $name", async ({ route, levels }) => {
+  ])("resolves thinking levels for the $name", async ({ modelId, route, levels }) => {
     const provider = await registerSingleProviderPlugin(openrouterPlugin);
-    const profile = provider.resolveThinkingProfile?.({
+    // Session reads must not load the catalog store; runtime resolution records its facts.
+    provider.resolveDynamicModel?.({
       provider: "openrouter",
       modelId: "anthropic/claude-opus-5.5",
+    } as never);
+    const profile = provider.resolveThinkingProfile?.({
+      provider: "openrouter",
+      modelId: modelId ?? "anthropic/claude-opus-5.5",
       api: "openai-completions",
       baseUrl: "https://openrouter.ai/api/v1",
       reasoning: true,
