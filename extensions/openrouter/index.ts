@@ -6,6 +6,7 @@ import type {
   ProviderResolveDynamicModelContext,
   ProviderRuntimeModel,
 } from "openclaw/plugin-sdk/plugin-entry";
+import { findNormalizedProviderValue } from "openclaw/plugin-sdk/provider-auth";
 import { runLiveProviderCatalog } from "openclaw/plugin-sdk/provider-catalog-live-runtime";
 import { defineSingleProviderPluginEntry } from "openclaw/plugin-sdk/provider-entry";
 import {
@@ -34,6 +35,7 @@ import {
   buildOpenrouterProvider,
   isOpenRouterProxyReasoningUnsupportedModel,
   normalizeOpenRouterBaseUrl,
+  OPENROUTER_BASE_URL,
   resolveOpenRouterApiBaseUrl,
 } from "./provider-catalog.js";
 import { resolveOpenRouterExtraParamsForTransport } from "./provider-routing.js";
@@ -314,6 +316,30 @@ export default defineSingleProviderPluginEntry({
         }),
       },
       resolveDynamicModel: (ctx) => buildDynamicOpenRouterModel(ctx),
+      // The configured row owns sizing and explicit opt-outs, but the OpenRouter
+      // model catalog owns effort capabilities on its canonical transport.
+      // Resolve that provider model even when a configured row already exists.
+      preferRuntimeResolvedModel: (ctx) => {
+        const configuredProvider = findNormalizedProviderValue(
+          ctx.config?.models?.providers,
+          PROVIDER_ID,
+        );
+        const requestedId = normalizeOpenRouterApiModelId(ctx.modelId) ?? ctx.modelId;
+        const configuredModel = configuredProvider?.models?.find(
+          (model) => (normalizeOpenRouterApiModelId(model.id) ?? model.id) === requestedId,
+        );
+        if (!configuredModel) {
+          return false;
+        }
+        const api = configuredModel?.api ?? configuredProvider?.api;
+        const baseUrl = configuredModel?.baseUrl ?? configuredProvider?.baseUrl;
+        return (
+          (api === undefined || api === "openai-completions") &&
+          // Target-provider resolution may compare routes before normalizing a
+          // legacy URL, so only the exact catalog route can borrow its metadata.
+          (baseUrl === undefined || baseUrl === OPENROUTER_BASE_URL)
+        );
+      },
       prepareDynamicModel: async (ctx) => {
         await loadOpenRouterModelCapabilities(
           normalizeOpenRouterApiModelId(ctx.modelId) ?? ctx.modelId,
