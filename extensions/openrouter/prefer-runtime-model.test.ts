@@ -1,6 +1,27 @@
 import { registerSingleProviderPlugin } from "openclaw/plugin-sdk/plugin-test-runtime";
-import { describe, expect, it } from "vitest";
+import type * as ProviderStreamFamily from "openclaw/plugin-sdk/provider-stream-family";
+import { describe, expect, it, vi } from "vitest";
 import openrouterPlugin from "./index.js";
+
+vi.mock("openclaw/plugin-sdk/provider-stream-family", async (importOriginal) => ({
+  ...(await importOriginal<typeof ProviderStreamFamily>()),
+  getOpenRouterModelCapabilities: (modelId: string) =>
+    modelId === "anthropic/claude-opus-5.5"
+      ? {
+          name: "Anthropic: Claude Opus 5.5",
+          reasoning: true,
+          compat: {
+            supportsReasoningEffort: true,
+            supportedReasoningEfforts: ["max", "xhigh", "high", "medium", "low"],
+          },
+          thinkingLevelMap: { off: null },
+          input: ["text", "image"],
+          cost: { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
+          contextWindow: 1_000_000,
+          maxTokens: 128_000,
+        }
+      : undefined,
+}));
 
 describe("OpenRouter configured model capability ownership", () => {
   it.each([
@@ -77,4 +98,33 @@ describe("OpenRouter configured model capability ownership", () => {
       ).toBe(preferred);
     },
   );
+
+  it.each([
+    {
+      name: "canonical configured row",
+      route: {},
+      levels: ["low", "medium", "high", "xhigh", "max"],
+    },
+    {
+      name: "custom route",
+      route: { baseUrl: "https://private.example.invalid/v1" },
+      levels: undefined,
+    },
+    {
+      name: "declared route efforts",
+      route: { compat: { supportedReasoningEfforts: ["low", "high"] } },
+      levels: ["off", "low", "high"],
+    },
+  ])("resolves thinking levels for the $name", async ({ route, levels }) => {
+    const provider = await registerSingleProviderPlugin(openrouterPlugin);
+    const profile = provider.resolveThinkingProfile?.({
+      provider: "openrouter",
+      modelId: "anthropic/claude-opus-5.5",
+      api: "openai-completions",
+      baseUrl: "https://openrouter.ai/api/v1",
+      reasoning: true,
+      ...route,
+    });
+    expect(profile?.levels.map((level) => level.id)).toEqual(levels);
+  });
 });

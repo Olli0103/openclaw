@@ -6,6 +6,7 @@
 
 - Codex: restore background memory narratives and isolated text completions on agent-scoped local runtimes with administrator-managed hooks, preserving managed hooks and existing native-account/proxy routing while keeping ordinary hooks and model tools isolated. (#151658)
 - Sandboxes: honor each registered runtime owner's pruning policy so a stricter agent cannot evict another agent's containers or browser bridges.
+- OpenRouter: configured catalog-route models keep OpenRouter's advertised reasoning efforts, so a supported `xhigh` default reaches the request instead of being lowered to `high`; custom routes and explicit reasoning opt-outs are unchanged. (#160474) Thanks @Olli0103 and @AXEG0.
 
 ### Changes
 

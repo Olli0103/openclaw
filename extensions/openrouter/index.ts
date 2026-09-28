@@ -1,6 +1,7 @@
 import { resolveAgentConfig } from "openclaw/plugin-sdk/agent-scope-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import type {
+  ProviderDefaultThinkingPolicyContext,
   ProviderReplayPolicy,
   ProviderReplayPolicyContext,
   ProviderResolveDynamicModelContext,
@@ -54,6 +55,44 @@ const OPENROUTER_DEFAULT_MAX_TOKENS = 8192;
 const OPENROUTER_FUSION_MODEL_ID = "openrouter/fusion";
 const OPENROUTER_CACHE_TTL_MODEL_FAMILY = /^(?:anthropic|deepseek|moonshot(?:ai)?|z-?ai)\//;
 const MAX_PROMPT_MODEL_ID_DISPLAY_CHARS = 256;
+
+// Configured rows keep their sizing and opt-outs, but the OpenRouter model
+// catalog owns effort capabilities on its canonical transport.
+function isOpenRouterCatalogRoute(route: {
+  api?: string | null;
+  baseUrl?: string | null;
+}): boolean {
+  return (
+    (route.api == null || route.api === "openai-completions") &&
+    // Target-provider resolution may compare routes before normalizing a
+    // legacy URL, so only the exact catalog route can borrow its metadata.
+    (route.baseUrl == null || route.baseUrl === OPENROUTER_BASE_URL)
+  );
+}
+
+function withOpenRouterCatalogThinking(
+  ctx: ProviderDefaultThinkingPolicyContext,
+): ProviderDefaultThinkingPolicyContext {
+  if (
+    ctx.thinkingLevelMap ||
+    ctx.compat?.supportsReasoningEffort !== undefined ||
+    ctx.compat?.supportedReasoningEfforts !== undefined ||
+    !isOpenRouterCatalogRoute(ctx)
+  ) {
+    return ctx;
+  }
+  const capabilities = getOpenRouterModelCapabilities(
+    normalizeOpenRouterApiModelId(ctx.modelId) ?? ctx.modelId,
+  );
+  if (!capabilities?.compat && !capabilities?.thinkingLevelMap) {
+    return ctx;
+  }
+  return {
+    ...ctx,
+    compat: { ...capabilities.compat, ...ctx.compat },
+    ...(capabilities.thinkingLevelMap ? { thinkingLevelMap: capabilities.thinkingLevelMap } : {}),
+  };
+}
 
 type OpenRouterFusionPromptContext = {
   config?: OpenClawConfig;
@@ -316,9 +355,7 @@ export default defineSingleProviderPluginEntry({
         }),
       },
       resolveDynamicModel: (ctx) => buildDynamicOpenRouterModel(ctx),
-      // The configured row owns sizing and explicit opt-outs, but the OpenRouter
-      // model catalog owns effort capabilities on its canonical transport.
-      // Resolve that provider model even when a configured row already exists.
+      // Resolve the catalog model even when a configured row already exists.
       preferRuntimeResolvedModel: (ctx) => {
         const configuredProvider = findNormalizedProviderValue(
           ctx.config?.models?.providers,
@@ -328,16 +365,12 @@ export default defineSingleProviderPluginEntry({
         const configuredModel = configuredProvider?.models?.find(
           (model) => (normalizeOpenRouterApiModelId(model.id) ?? model.id) === requestedId,
         );
-        if (!configuredModel) {
-          return false;
-        }
-        const api = configuredModel?.api ?? configuredProvider?.api;
-        const baseUrl = configuredModel?.baseUrl ?? configuredProvider?.baseUrl;
         return (
-          (api === undefined || api === "openai-completions") &&
-          // Target-provider resolution may compare routes before normalizing a
-          // legacy URL, so only the exact catalog route can borrow its metadata.
-          (baseUrl === undefined || baseUrl === OPENROUTER_BASE_URL)
+          configuredModel !== undefined &&
+          isOpenRouterCatalogRoute({
+            api: configuredModel.api ?? configuredProvider?.api,
+            baseUrl: configuredModel.baseUrl ?? configuredProvider?.baseUrl,
+          })
         );
       },
       prepareDynamicModel: async (ctx) => {
@@ -377,7 +410,8 @@ export default defineSingleProviderPluginEntry({
       normalizeToolSchemas: normalizeOpenRouterToolSchemas,
       inspectToolSchemas: inspectOpenRouterToolSchemas,
       resolveReasoningOutputMode: () => "native",
-      resolveThinkingProfile: (ctx) => resolveOpenRouterThinkingProfile(ctx.modelId, ctx),
+      resolveThinkingProfile: (ctx) =>
+        resolveOpenRouterThinkingProfile(ctx.modelId, withOpenRouterCatalogThinking(ctx)),
       isModernModelRef: () => true,
       resolveSystemPromptContribution: resolveOpenRouterFusionPromptContribution,
       extraParamsForTransport: resolveOpenRouterExtraParamsForTransport,
