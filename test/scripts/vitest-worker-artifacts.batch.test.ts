@@ -91,6 +91,7 @@ it.for([
   { name: "nonmatching include", args: [coreWorker], include: ["test/**"], prepare: false },
   { name: "root config", config: "vitest.config.ts", args: [coreWorker], prepare: true },
   { name: "focused Doctor E2E", config: e2eConfig, args: [doctorE2E], prepare: true },
+  { name: "unfiltered E2E", config: e2eConfig, args: [], prepare: true },
   {
     name: "excluded Doctor E2E",
     config: e2eConfig,
