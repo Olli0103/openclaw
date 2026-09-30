@@ -386,40 +386,27 @@ export async function migrateCanonicalTranscriptArchives(
     for (const planned of batch) {
       params.onArchive?.(path.resolve(archiveDirectory, planned.archiveName));
     }
-    // Revalidate every source row within one bounded, atomic rewrite block.
+    // Keep the original publication timestamps recoverable until file repair
+    // and cursor progress both succeed. A failed batch rolls back its blobs;
+    // already replaced files are verified again on retry.
     const rowsPresent = runSqliteImmediateTransactionSync(
       params.database,
       () => {
         assertAgentDatabaseMaintenanceAuthority();
         const result = batch.map((planned) => rewriteArchiveRow(params.database, planned));
-        assertAgentDatabaseMaintenanceAuthority();
-        return result;
-      },
-      {
-        busyTimeoutMs: OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
-        databaseLabel: params.pathname,
-        operationLabel: "historical-transcript-archive-directives",
-      },
-    );
-    // Publish reconstructible files outside the SQLite write transaction.
-    const filesCurrent = batch.map((planned, index) => {
-      const archivePath = path.resolve(archiveDirectory, planned.archiveName);
-      const fileCurrent = rowsPresent[index]
-        ? repairPublishedArchiveFile({ archiveDirectory, planned })
-        : false;
-      if (rowsPresent[index] && !fileCurrent) {
-        missingCopies += 1;
-        if (missingCopyExamples.length < MIGRATION_WARNING_EXAMPLE_LIMIT) {
-          missingCopyExamples.push(`Missing canonical transcript archive copy: ${archivePath}`);
-        }
-      }
-      return fileCurrent;
-    });
-    // Publish cursor progress only after all file attempts in this batch succeed.
-    runSqliteImmediateTransactionSync(
-      params.database,
-      () => {
-        assertAgentDatabaseMaintenanceAuthority();
+        const filesCurrent = batch.map((planned, index) => {
+          const archivePath = path.resolve(archiveDirectory, planned.archiveName);
+          const fileCurrent = result[index]
+            ? repairPublishedArchiveFile({ archiveDirectory, planned })
+            : false;
+          if (result[index] && !fileCurrent) {
+            missingCopies += 1;
+            if (missingCopyExamples.length < MIGRATION_WARNING_EXAMPLE_LIMIT) {
+              missingCopyExamples.push(`Missing canonical transcript archive copy: ${archivePath}`);
+            }
+          }
+          return fileCurrent;
+        });
         for (const [index, planned] of batch.entries()) {
           finalizeArchiveCursor({
             database: params.database,
@@ -429,11 +416,12 @@ export async function migrateCanonicalTranscriptArchives(
           });
         }
         assertAgentDatabaseMaintenanceAuthority();
+        return result;
       },
       {
         busyTimeoutMs: OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
         databaseLabel: params.pathname,
-        operationLabel: "historical-transcript-archive-cursor",
+        operationLabel: "historical-transcript-archive-directives",
       },
     );
     rewrittenArchives += batch.filter(
