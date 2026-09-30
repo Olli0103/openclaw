@@ -384,52 +384,63 @@ export async function migrateCanonicalTranscriptArchives(
       };
     }
     for (const planned of batch) {
+      params.onArchive?.(path.resolve(archiveDirectory, planned.archiveName));
+    }
+    // Revalidate every source row within one bounded, atomic rewrite block.
+    const rowsPresent = runSqliteImmediateTransactionSync(
+      params.database,
+      () => {
+        assertAgentDatabaseMaintenanceAuthority();
+        const result = batch.map((planned) => rewriteArchiveRow(params.database, planned));
+        assertAgentDatabaseMaintenanceAuthority();
+        return result;
+      },
+      {
+        busyTimeoutMs: OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
+        databaseLabel: params.pathname,
+        operationLabel: "historical-transcript-archive-directives",
+      },
+    );
+    // Publish reconstructible files outside the SQLite write transaction.
+    const filesCurrent = batch.map((planned, index) => {
       const archivePath = path.resolve(archiveDirectory, planned.archiveName);
-      params.onArchive?.(archivePath);
-      const rowPresent = runSqliteImmediateTransactionSync(
-        params.database,
-        () => {
-          assertAgentDatabaseMaintenanceAuthority();
-          const currentRowPresent = rewriteArchiveRow(params.database, planned);
-          assertAgentDatabaseMaintenanceAuthority();
-          return currentRowPresent;
-        },
-        {
-          busyTimeoutMs: OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
-          databaseLabel: params.pathname,
-          operationLabel: "historical-transcript-archive-directives",
-        },
-      );
-      const fileCurrent = rowPresent
+      const fileCurrent = rowsPresent[index]
         ? repairPublishedArchiveFile({ archiveDirectory, planned })
         : false;
-      if (rowPresent && !fileCurrent) {
+      if (rowsPresent[index] && !fileCurrent) {
         missingCopies += 1;
         if (missingCopyExamples.length < MIGRATION_WARNING_EXAMPLE_LIMIT) {
           missingCopyExamples.push(`Missing canonical transcript archive copy: ${archivePath}`);
         }
       }
-      runSqliteImmediateTransactionSync(
-        params.database,
-        () => {
-          assertAgentDatabaseMaintenanceAuthority();
+      return fileCurrent;
+    });
+    // Publish cursor progress only after all file attempts in this batch succeed.
+    runSqliteImmediateTransactionSync(
+      params.database,
+      () => {
+        assertAgentDatabaseMaintenanceAuthority();
+        for (const [index, planned] of batch.entries()) {
           finalizeArchiveCursor({
             database: params.database,
-            fileCurrent,
+            fileCurrent: filesCurrent[index] === true,
             planned,
             writeCursor: params.writeCursor,
           });
-          assertAgentDatabaseMaintenanceAuthority();
-        },
-        {
-          busyTimeoutMs: OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
-          databaseLabel: params.pathname,
-          operationLabel: "historical-transcript-archive-cursor",
-        },
-      );
-      rewrittenArchives += planned.changed && rowPresent ? 1 : 0;
-      cursor = { generation: planned.generation, sessionId: planned.sessionId };
-    }
+        }
+        assertAgentDatabaseMaintenanceAuthority();
+      },
+      {
+        busyTimeoutMs: OPENCLAW_SQLITE_BUSY_TIMEOUT_MS,
+        databaseLabel: params.pathname,
+        operationLabel: "historical-transcript-archive-cursor",
+      },
+    );
+    rewrittenArchives += batch.filter(
+      (planned, index) => planned.changed && rowsPresent[index],
+    ).length;
+    const last = batch.at(-1)!;
+    cursor = { generation: last.generation, sessionId: last.sessionId };
     // Archive planning and file publication are synchronous. Give the lease
     // heartbeat a scheduling point before the next bounded batch begins.
     await new Promise<void>((resolve) => {
