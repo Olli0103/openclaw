@@ -35,7 +35,7 @@ import {
   stagedInputDirectory,
   stagedInputFileName,
 } from "../../media/staged-inputs.js";
-import { getMediaDir } from "../../media/store.js";
+import { getMediaDir, saveMediaBuffer } from "../../media/store.js";
 import { runCommandWithTimeout } from "../../process/exec.js";
 import type { SkillSnapshot } from "../../skills/types.js";
 import { CONFIG_DIR } from "../../utils.js";
@@ -170,15 +170,30 @@ export async function stageSandboxMedia(params: {
     // Keep published relative paths portable; resolve the native destination below.
     const relativeDest = path.posix.join(inputDirectory, fileName);
     const dest = path.join(effectiveWorkspaceDir, relativeDest);
+    let downloadedMediaUri: string | undefined;
     const stageSource = async (sourcePath: string) => {
       if (remoteBridge) {
-        await stageLocalFileIntoSandbox({
+        const buffer = await stageLocalFileIntoSandbox({
           sourcePath,
           relativeDestPath: relativeDest,
           bridge: remoteBridge,
           abortSignal,
           prepareDestination,
         });
+        if (ctx.MediaRemoteHost) {
+          // The SCP temp copy is removed below; Gateway preprocessing and
+          // history still need an original outside the remote-only workspace.
+          const saved = await saveMediaBuffer(
+            buffer,
+            media[entry.index]?.contentType,
+            "inbound",
+            SANDBOX_MEDIA_MAX_BYTES,
+            path.basename(source),
+            undefined,
+            { assertCommitAllowed: () => abortSignal?.throwIfAborted() },
+          );
+          downloadedMediaUri = buildInboundMediaUriFromPath(saved.path);
+        }
       } else {
         await stageLocalFileIntoRoot({
           sourcePath,
@@ -227,9 +242,10 @@ export async function stageSandboxMedia(params: {
     // Keep the managed original fetchable after history redacts the runner's
     // private staged path. A remote host's path is not a local store reference.
     const inboundUri =
-      !ctx.MediaRemoteHost && (!originalUrl || rewritesUrl)
+      downloadedMediaUri ??
+      (!ctx.MediaRemoteHost && (!originalUrl || rewritesUrl)
         ? buildInboundMediaUriFromPath(source)
-        : undefined;
+        : undefined);
     if (inboundUri || rewritesUrl) {
       stagedUrls.set(entry.index, inboundUri ?? stagedPath);
     }
@@ -339,7 +355,7 @@ async function stageLocalFileIntoSandbox(params: {
   bridge: SandboxFsBridge;
   abortSignal?: AbortSignal;
   prepareDestination: () => Promise<void>;
-}): Promise<void> {
+}): Promise<Buffer> {
   const source = await readLocalFileSafely({
     filePath: params.sourcePath,
     maxBytes: SANDBOX_MEDIA_MAX_BYTES,
@@ -358,6 +374,7 @@ async function stageLocalFileIntoSandbox(params: {
   if (created !== "created") {
     throw new Error("Input staging file already exists");
   }
+  return source.buffer;
 }
 
 async function stageRemoteFileIntoRoot(params: {

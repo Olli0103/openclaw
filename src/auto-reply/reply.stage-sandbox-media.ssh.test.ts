@@ -7,6 +7,14 @@ import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { createSandbox } from "../agents/sandbox/fs-bridge.test-helpers.js";
 import { createRemoteShellSandboxFsBridge } from "../agents/sandbox/remote-fs-bridge.js";
 import { createLocalRemoteShellScriptRunner } from "../agents/sandbox/remote-fs-bridge.test-helpers.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { prepareChatSendAttachments } from "../gateway/server-methods/chat-send-attachments.js";
+import { normalizeChatSendRequest } from "../gateway/server-methods/chat-send-request.js";
+import {
+  createMediaAttachmentCache,
+  normalizeMediaAttachments,
+} from "../media-understanding/runner.attachments.js";
+import type * as ProcessExec from "../process/exec.js";
 import { stageSandboxMedia } from "./reply/stage-sandbox-media.js";
 import {
   createSandboxMediaContexts,
@@ -18,6 +26,19 @@ const sandboxMocks = vi.hoisted(() => ({
   ensureSandboxWorkspaceForSession: vi.fn(),
 }));
 vi.mock("../agents/sandbox.js", () => sandboxMocks);
+vi.mock("../agents/sandbox/context.js", () => sandboxMocks);
+const remoteSourceMocks = vi.hoisted(() => ({
+  runCommandWithTimeout: vi.fn(),
+  resolveChannelRemoteInboundAttachmentRoots: vi.fn(() => ["/remote/inbound"]),
+}));
+vi.mock("../media/channel-inbound-roots.js", () => ({
+  resolveChannelRemoteInboundAttachmentRoots:
+    remoteSourceMocks.resolveChannelRemoteInboundAttachmentRoots,
+}));
+vi.mock("../process/exec.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof ProcessExec>()),
+  runCommandWithTimeout: remoteSourceMocks.runCommandWithTimeout,
+}));
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
@@ -26,9 +47,15 @@ function sha256(data: Buffer | string): string {
 }
 
 describe("SSH post-seed inbound staging", () => {
-  it.each(["rw", "none", "ro"] as const)(
-    "stages through the remote bridge with workspaceAccess=%s",
-    async (workspaceAccess) => {
+  it.each([
+    { workspaceAccess: "rw", sourceKind: "local" },
+    { workspaceAccess: "none", sourceKind: "local" },
+    { workspaceAccess: "ro", sourceKind: "local" },
+    { workspaceAccess: "rw", sourceKind: "scp" },
+    { workspaceAccess: "rw", sourceKind: "upload" },
+  ] as const)(
+    "keeps $sourceKind input readable with workspaceAccess=$workspaceAccess",
+    async ({ workspaceAccess, sourceKind }) => {
       await withSandboxMediaTempHome("openclaw-ssh-media-", async (home) => {
         const localWorkspace = path.join(home, "gateway-workspace");
         const remoteWorkspace = path.join(await fs.realpath(tempDirs.make("ssh-media-")), "remote");
@@ -60,10 +87,27 @@ describe("SSH post-seed inbound staging", () => {
 
         const inboundDir = path.join(home, ".openclaw", "media", "inbound");
         await fs.mkdir(inboundDir, { recursive: true });
-        const source = path.join(inboundDir, "photo.png");
-        const payload = Buffer.from("second-turn-image");
-        await fs.writeFile(source, payload);
+        const source =
+          sourceKind === "scp" ? "/remote/inbound/photo.txt" : path.join(inboundDir, "photo.txt");
+        const payload = Buffer.from("second-turn document");
+        let downloadedPath: string | undefined;
+        if (sourceKind === "scp") {
+          remoteSourceMocks.runCommandWithTimeout.mockReset().mockImplementation(async (args) => {
+            downloadedPath = args.at(-1);
+            await fs.writeFile(downloadedPath!, payload);
+            return { code: 0, stdout: "", stderr: "" };
+          });
+        } else {
+          await fs.writeFile(source, payload);
+        }
         const { ctx, sessionCtx } = createSandboxMediaContexts(source);
+        if (sourceKind === "scp") {
+          ctx.MediaRemoteHost = "test@source-host";
+          sessionCtx.MediaRemoteHost = ctx.MediaRemoteHost;
+        }
+        const cfg: OpenClawConfig = {
+          agents: { defaults: { workspace: localWorkspace, sandbox: { backend: "ssh" } } },
+        };
         const skillsSnapshot =
           workspaceAccess === "rw"
             ? {
@@ -80,30 +124,69 @@ describe("SSH post-seed inbound staging", () => {
               }
             : undefined;
 
-        const result = await stageSandboxMedia({
-          ctx,
-          sessionCtx,
-          cfg: { agents: { defaults: { sandbox: { backend: "ssh" } } } },
-          sessionKey: "agent:main:chat",
-          workspaceDir: localWorkspace,
-          skillsSnapshot,
-        });
+        if (sourceKind === "upload") {
+          const request = normalizeChatSendRequest({
+            client: null,
+            params: {
+              sessionKey: "agent:main:chat",
+              message: "Read this document",
+              idempotencyKey: "ssh-upload",
+              attachments: [
+                { fileName: "photo.txt", mimeType: "text/plain", content: payload.toString("base64") },
+              ],
+            },
+          });
+          if (!request.ok) {
+            throw new Error(request.error);
+          }
+          const controller = new AbortController();
+          const prepared = await prepareChatSendAttachments({
+            request: request.value,
+            session: {
+              cfg,
+              sessionKey: "agent:main:chat",
+              agentId: "main",
+              resolvedSessionModel: { provider: "fixture", model: "fixture" },
+              clientRunId: "ssh-upload",
+            },
+            admission: {
+              activeRunAbort: { controller },
+              assertWorkAdmissionCurrent: () => controller.signal.throwIfAborted(),
+              cleanupAdmittedRun() {},
+            },
+            context: {},
+            respond: vi.fn(),
+          } as unknown as Parameters<typeof prepareChatSendAttachments>[0]);
+          expect(prepared.ok).toBe(true);
+          if (!prepared.ok) {
+            throw new Error("attachment preparation failed");
+          }
+          ctx.media = prepared.value.mediaPathOffloads;
+          sessionCtx.media = ctx.media;
+        } else {
+          await stageSandboxMedia({
+            ctx,
+            sessionCtx,
+            cfg,
+            sessionKey: "agent:main:chat",
+            workspaceDir: localWorkspace,
+            skillsSnapshot,
+          });
+        }
 
         expect(await fs.readFile(path.join(remoteWorkspace, "seeded.txt"), "utf8")).toBe(
           "first turn",
         );
         if (workspaceAccess === "ro") {
-          expect(result.staged.size).toBe(0);
           expect(ctx.media?.[0]?.path).toBe(source);
           expect(await fs.readdir(remoteWorkspace)).toEqual(["seeded.txt"]);
           expect(await fs.readdir(localWorkspace)).toEqual([]);
           return;
         }
 
-        const staged = result.staged.get(0);
-        expect(staged).toMatch(/^media\/inbound\/openclaw-staged-[\da-f-]+\/input-photo\.png$/u);
-        expect(ctx.media?.[0]).toMatchObject({ path: staged, staged: true });
-        expect(sessionCtx.media?.[0]).toMatchObject({ path: staged, staged: true });
+        const staged = ctx.media?.[0]?.path;
+        expect(staged).toMatch(/^media\/inbound\/openclaw-staged-[\da-f-]+\/input-.*\.txt$/u);
+        expect(sessionCtx.media?.[0]?.path).toBe(staged);
         expect(await bridge.readFile({ filePath: staged! })).toEqual(payload);
         expect(sha256(await fs.readFile(path.join(remoteWorkspace, staged!)))).toBe(
           sha256(payload),
@@ -115,6 +198,23 @@ describe("SSH post-seed inbound staging", () => {
           ),
         ).toContain("Raw task inputs remain private");
         expect(await fs.readdir(localWorkspace)).toEqual([]);
+        const cache = createMediaAttachmentCache(normalizeMediaAttachments(ctx), {
+          localPathRoots: [inboundDir, localWorkspace],
+          includeDefaultLocalPathRoots: false,
+        });
+        try {
+          const original = await cache.getBuffer({
+            attachmentIndex: 0,
+            maxBytes: 1024,
+            timeoutMs: 1000,
+          });
+          expect(original.buffer).toEqual(payload);
+        } finally {
+          await cache.cleanup();
+        }
+        if (downloadedPath) {
+          await expect(fs.stat(downloadedPath)).rejects.toMatchObject({ code: "ENOENT" });
+        }
       });
     },
   );

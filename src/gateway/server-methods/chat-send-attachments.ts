@@ -198,6 +198,7 @@ async function prestageMediaPathOffloads(params: {
       const resolved = resolvedByRef.get(ref) ?? { path: ref.path, mimeType: ref.mimeType };
       return {
         path: resolved.path,
+        url: ref.mediaRef,
         contentType: resolved.mimeType,
         fileName: ref.label,
         workspaceDir: sandbox.workspaceDir,
