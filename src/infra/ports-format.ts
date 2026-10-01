@@ -1,4 +1,3 @@
-// Formats port probe results for diagnostics and CLI output.
 import net from "node:net";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { formatCliCommand } from "../cli/command-format.js";
@@ -28,9 +27,6 @@ export function classifyPortListener(listener: PortListener, _port: number): Por
     /(?:^|[\s"'])(?:(?:"[^"]*[/\\])|(?:'[^']*[/\\])|(?:\S*[/\\]))?ssh(?:\.exe)?(?:[\s"']|$)/.test(
       commandLine,
     );
-  if (hasSshCommand) {
-    return "ssh";
-  }
   if (hasSshExecutable) {
     // The probe row already proves this process owns the queried port. Exact
     // ssh executables may get their forwards from ssh_config or host aliases.

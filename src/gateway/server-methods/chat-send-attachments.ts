@@ -11,6 +11,7 @@ import { measureDiagnosticsTimelineSpan } from "../../infra/diagnostics-timeline
 import { formatErrorMessage } from "../../infra/errors.js";
 import type { MediaFact } from "../../media/media-facts.js";
 import { parseInboundMediaUri } from "../../media/media-reference.js";
+import type { UserTurnTranscriptRecorder } from "../../sessions/user-turn-transcript.js";
 import type { SkillSnapshot } from "../../skills/types.js";
 import { resolveChatAttachmentMaxBytes } from "../chat-attachment-policy.js";
 import {
@@ -22,6 +23,7 @@ import {
   stripImageMediaMarkers,
   UnsupportedAttachmentError,
 } from "../chat-attachments.js";
+import { SessionMutationAuthorizationChangedError } from "../session-mutation-authorization-error.js";
 import { resolveGatewayModelSupportsImages } from "../session-utils.js";
 import { prepareSkillLibrarySessionCreation } from "../skill-library-session.js";
 import {
@@ -90,15 +92,10 @@ async function prestageMediaPathOffloads(params: {
         fileName: ref.label,
         workspaceDir: path.dirname(ref.path),
       }));
-    const passThroughRefs: OffloadedRef[] = [];
-    const refsToStage: OffloadedRef[] = [];
-    for (const ref of mediaPathRefs) {
-      // Host-readable managed PDFs above the staging cap do not need a sandbox copy.
-      (ref.sizeBytes > SANDBOX_MEDIA_MAX_BYTES && isManagedInboundPdfOffloadRef(ref)
-        ? passThroughRefs
-        : refsToStage
-      ).push(ref);
-    }
+    // Host-readable managed PDFs above the staging cap do not need a sandbox copy.
+    const refsToStage = mediaPathRefs.filter(
+      (ref) => !(ref.sizeBytes > SANDBOX_MEDIA_MAX_BYTES && isManagedInboundPdfOffloadRef(ref)),
+    );
     if (refsToStage.length === 0) {
       return refsByManagedPath(mediaPathRefs);
     }
@@ -130,6 +127,7 @@ async function prestageMediaPathOffloads(params: {
       workspaceDir,
       skillsSnapshot,
     });
+    params.assertWorkAdmissionCurrent();
     if (!sandbox) {
       return refsByManagedPath(mediaPathRefs);
     }
@@ -196,9 +194,6 @@ async function prestageMediaPathOffloads(params: {
         mimeType: stagedMedia[index]?.contentType ?? ref.mimeType,
       });
     });
-    for (const ref of passThroughRefs) {
-      resolvedByRef.set(ref, { path: ref.path, mimeType: ref.mimeType });
-    }
     return mediaPathRefs.map((ref) => {
       const resolved = resolvedByRef.get(ref) ?? { path: ref.path, mimeType: ref.mimeType };
       return {
@@ -211,6 +206,7 @@ async function prestageMediaPathOffloads(params: {
   } catch (err) {
     if (
       (params.abortSignal.aborted && Object.is(err, params.abortSignal.reason)) ||
+      err instanceof SessionMutationAuthorizationChangedError ||
       err instanceof MediaOffloadError ||
       err instanceof UnsupportedAttachmentError
     ) {
@@ -242,6 +238,11 @@ export async function prepareChatSendAttachments(params: {
     finishAbortedChatSend,
     lifecycleGeneration,
   } = admission;
+  const assertInputCurrent = () => {
+    activeRunAbort.controller.signal.throwIfAborted();
+    admission.assertWorkAdmissionCurrent();
+    admission.assertClientUploadAllowed?.();
+  };
   let parsedMessage = inboundMessage;
   let parsedImages: Awaited<ReturnType<typeof parseMessageWithAttachments>>["images"] = [];
   let imageOrder: Awaited<ReturnType<typeof parseMessageWithAttachments>>["imageOrder"] = [];
@@ -277,6 +278,8 @@ export async function prepareChatSendAttachments(params: {
             log: context.logGateway,
             supportsImages: imageSupport.value ?? resolveSupportsImages,
             acceptNonImage: true,
+            signal: activeRunAbort.controller.signal,
+            assertCurrent: assertInputCurrent,
           });
           // The parser owns MIME classification. An unresolved capability means no image was seen,
           // so post-processing must not trigger catalog discovery for a non-image attachment.
@@ -308,7 +311,7 @@ export async function prepareChatSendAttachments(params: {
             skillLibrarySelections: selectedSkills,
             existingSkillsSnapshot: stagingEntry?.skillsSnapshot,
             abortSignal: activeRunAbort.controller.signal,
-            assertWorkAdmissionCurrent: admission.assertWorkAdmissionCurrent,
+            assertWorkAdmissionCurrent: assertInputCurrent,
           });
         },
         {
@@ -320,6 +323,7 @@ export async function prepareChatSendAttachments(params: {
           },
         },
       );
+      assertInputCurrent();
       // Pass-through media still needs awaited cleanup when preparation was cancelled.
       activeRunAbort.controller.signal.throwIfAborted();
       prepareAttachmentsMs = roundedChatSendTimingMs(
@@ -346,10 +350,14 @@ export async function prepareChatSendAttachments(params: {
       respond(
         false,
         undefined,
-        errorShape(
-          err instanceof MediaOffloadError ? ErrorCodes.UNAVAILABLE : ErrorCodes.INVALID_REQUEST,
-          String(err),
-        ),
+        err instanceof SessionMutationAuthorizationChangedError
+          ? err.error
+          : errorShape(
+              err instanceof MediaOffloadError
+                ? ErrorCodes.UNAVAILABLE
+                : ErrorCodes.INVALID_REQUEST,
+              String(err),
+            ),
       );
       return { ok: false as const };
     }
@@ -365,5 +373,27 @@ export async function prepareChatSendAttachments(params: {
       parsedMessage,
       prepareAttachmentsMs,
     },
+  };
+}
+
+export type PreparedChatSendAttachments = Extract<
+  Awaited<ReturnType<typeof prepareChatSendAttachments>>,
+  { ok: true }
+>["value"];
+
+/** Preparation owns cleanup until a transcript or pending input takes custody of its media. */
+export function bindChatSendPreparedMediaCustody(params: {
+  admission: Pick<AdmittedChatSend, "setDiscardAbandonedPreparedMedia">;
+  attachments: Pick<PreparedChatSendAttachments, "offloadedRefs">;
+}): (recorder: UserTurnTranscriptRecorder) => void {
+  let recorder: UserTurnTranscriptRecorder | undefined;
+  // Dispatch owns persistence after the ACK disarms this cleanup.
+  params.admission.setDiscardAbandonedPreparedMedia(() => {
+    if (!recorder?.hasPersisted() && !recorder?.getPendingInputMessage?.()) {
+      void discardPreparedInboundMedia(params.attachments.offloadedRefs);
+    }
+  });
+  return (inputRecorder) => {
+    recorder = inputRecorder;
   };
 }

@@ -66,6 +66,14 @@ offsets for `isInsideCode`. Regions returned by `findCodeRegions` additionally
 include parser-owned `block` metadata; callers supplying their own ranges do not
 need to provide it.
 
+### WebSocket options and constructors
+
+`websocket-runtime` retains the `ws.ClientOptions` alias and `WebSocket`
+constructor signatures shipped in OpenClaw 2026.9.6. Host-internal TLS type
+corrections must not change plugin callback typing or constructor overloads.
+A source-incompatible correction to this public contract requires an approved,
+versioned SDK migration.
+
 ### Gateway worker environment creation
 
 `GatewayRequestHandlerOptions` from `core` and `gateway-runtime` retains the
@@ -207,6 +215,25 @@ provides bounded `readPluginStateEntriesInKeyRange` and
 `deletePluginStateEntriesIfUnchanged` only during a fenced repair. Preserve
 unknown or ambiguous ownership. Delete only the observed raw rows; callbacks
 retained after maintenance ends cannot authorize later writes.
+
+Trusted bundled and official plugins may also use the optional
+`inspectCronJobs` and `repairCronJobs` context methods for explicit cron
+migrations. Inspection is non-creating and returns raw definitions, row IDs,
+ordering, validation findings, and store keys for every persisted partition.
+`repairCronJobs(inventory, changes)` is available only during offline repair:
+it saves a verified shared-state SQLite backup, rechecks current authority and
+the inspected definitions, then applies all selected replacements or deletions
+in one transaction. A replacement preserves the row ID, partition, ordering,
+and runtime state. A deletion uses normal cron scratch and grant cleanup.
+The result reports `changed` and the retained `backupPath`; a no-op creates no
+backup. Plugins classify their own historical jobs and retain ambiguous rows.
+Older hosts may omit these methods, so a migration must check availability.
+
+These helpers follow the [native-plugin trust model](/plugins/architecture#execution-model):
+eligible plugins run with host privileges and own historical job classification.
+The host enforces installation provenance, offline repair authority, unchanged
+definitions, verified backup, and atomic persistence. The API does not promise
+isolation between mutually untrusted native plugins.
 
 The setup-entry `legacyStateMigrations` option and feature flag,
 `setupFeatures.legacyStateMigrations`,

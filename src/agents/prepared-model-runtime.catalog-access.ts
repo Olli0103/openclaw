@@ -15,6 +15,7 @@ import {
   type PreparedModelCatalogAuth,
 } from "./prepared-model-runtime-auth.js";
 import {
+  createPreparedAccountCatalogAccess,
   prepareInitialModelCatalogAuth,
   replacePreparedModelCatalogAuth,
 } from "./prepared-model-runtime.catalog-auth.js";
@@ -57,9 +58,29 @@ export const MAX_CONCURRENT_FULL_MODEL_CATALOG_BUILDS = 1;
 const limitFullModelCatalogBuild = pLimit(MAX_CONCURRENT_FULL_MODEL_CATALOG_BUILDS);
 const MODEL_CATALOG_FOREGROUND_WAIT_MS = 5_000;
 
-export function createFullModelCatalogAccess(
+export async function createFullModelCatalogAccess(
   params: PreparedModelRuntimeCatalogAccessParams,
-): PreparedModelRuntimeCatalogAccess {
+  assertBuildCurrent: () => void,
+): Promise<PreparedModelRuntimeCatalogAccess> {
+  assertBuildCurrent();
+  const normalizeProvider = createPreparedModelCatalogProviderNormalizer(
+    params.pluginGeneration.pluginMetadataSnapshot,
+    params.agentFacts.input.config,
+    params.agentFacts.env,
+  );
+  const eligibleProviders = [
+    ...new Set(
+      [...params.agentFacts.providerIds, ...Object.keys(params.agentFacts.credentials)].map(
+        normalizeProvider,
+      ),
+    ),
+  ].toSorted();
+  const currentAuth = await prepareInitialModelCatalogAuth(
+    params,
+    eligibleProviders,
+    assertBuildCurrent,
+  );
+  assertBuildCurrent();
   const readUsage = createPreparedRuntimeAuthProfileUsageReader(
     params.agentFacts.input.agentDir,
     params.agentFacts.input.inheritedAuthDir,
@@ -68,11 +89,6 @@ export function createFullModelCatalogAccess(
     setPreparedModelFullCatalogAuth(catalog, auth, (store) =>
       params.isCurrent() ? readUsage(store) : store,
     );
-  const normalizeProvider = createPreparedModelCatalogProviderNormalizer(
-    params.pluginGeneration.pluginMetadataSnapshot,
-    params.agentFacts.input.config,
-    params.agentFacts.env,
-  );
   const projectInventory = createPreparedModelCatalogProjection({ ...params, normalizeProvider });
   const project = (
     catalog: ModelCatalogSnapshot,
@@ -101,8 +117,8 @@ export function createFullModelCatalogAccess(
         for (const provider of pending?.providers ?? providers.keys()) {
           const facts = providers.get(provider);
           if (facts) {
-            const { source, credentials } = facts;
-            providers.set(provider, { source, credentials });
+            const { expiresAt: _expiresAt, ...retained } = facts;
+            providers.set(provider, retained);
           }
         }
         published = {
@@ -113,13 +129,6 @@ export function createFullModelCatalogAccess(
       }
     },
   );
-  const eligibleProviders = [
-    ...new Set(
-      [...params.agentFacts.providerIds, ...Object.keys(params.agentFacts.credentials)].map(
-        normalizeProvider,
-      ),
-    ),
-  ].toSorted();
   const providerSource = (provider: string) =>
     preparedProviderCatalogSource(
       params.agentFacts,
@@ -177,7 +186,6 @@ export function createFullModelCatalogAccess(
     // account inventory. Reacquire them with this generation before enriching API routes.
     retainedInventory.catalog.nativeHostRows = undefined;
   }
-  const currentAuth = prepareInitialModelCatalogAuth(params, eligibleProviders);
   if (retainedInventory && previousAuth) {
     setCatalogAuth(retainedInventory.catalog, currentAuth);
   }
@@ -227,7 +235,7 @@ export function createFullModelCatalogAccess(
     const catalog = project(nextInventory.catalog, configuredRuntimeModels);
     setCatalogAuth(catalog, getPreparedModelFullCatalogAuth(nextInventory.catalog) ?? currentAuth);
     catalog.authoritative =
-      acquiredNative && !catalog.refreshFailed ? nextInventory.catalog.authoritative : false;
+      acquiredNative && !catalog.refreshFailed ? catalog.authoritative : false;
     if (
       acquiredNative &&
       eligibleProviders.every((provider) => nextInventory.providers.has(provider))
@@ -305,6 +313,7 @@ export function createFullModelCatalogAccess(
         configuredRuntimeModels,
         runtimeModels,
         providerExpiries,
+        hookRows,
       } = await worker.loadCatalog(
         providerIds,
         (providerIds ?? providers).some((provider) => published.inventory?.providers.has(provider))
@@ -333,7 +342,7 @@ export function createFullModelCatalogAccess(
             scope.has(normalizeProvider(provider)),
           )
         : discoveredAuth;
-      const publication = prepareModelCatalogPublication(
+      const { legacyRows, ...publication } = prepareModelCatalogPublication(
         providerIds
           ? filterPreparedProviderCatalog(workerCatalog, (provider) =>
               scope.has(normalizeProvider(provider)),
@@ -343,6 +352,7 @@ export function createFullModelCatalogAccess(
         retained,
         auth,
         normalizeProvider,
+        hookRows,
       );
       const completedProviders = new Map(
         [...scope].map((provider) => {
@@ -357,6 +367,7 @@ export function createFullModelCatalogAccess(
               source: providerSource(provider),
               credentials: preparedProviderCatalogCredentials(auth, provider, normalizeProvider),
               ...(!failed && expiresAt !== undefined ? { expiresAt } : {}),
+              ...(legacyRows.get(provider)?.size ? { legacyRows: legacyRows.get(provider) } : {}),
             },
           ] as const;
         }),
@@ -619,6 +630,7 @@ export function createFullModelCatalogAccess(
     return promise;
   };
   return {
+    accountCatalog: createPreparedAccountCatalogAccess(params.isCurrent, params.retirementSignal),
     initialAuth: currentAuth,
     isCurrent: params.isCurrent,
     withRefreshStatus: attempt.withRefreshStatus,

@@ -96,13 +96,16 @@ Other selection rules:
 - The Control UI starts from the Gateway's prepared configured model view, so opening chat does not start provider discovery. Opening the chat model picker reads published rows, including rows matched by a trailing `provider/*` policy entry. Use its explicit Refresh action to request immediate provider discovery. Default and configured picker views hide catalog rows marked `deprecated` or `disabled`. There is one exception: a row stays visible when that exact model is configured as a primary, fallback, utility or tool model, alias or settings key, or exact policy entry. Hidden rows remain selectable by exact `provider/model` ref. The full built-in catalog, including hidden rows, is reserved for explicit browse views (`models.list` with `view: "all"`, or `openclaw models list --all`).
 - Provider inventory UIs use `models.list` with `view: "provider-config"` to show source-authored `models.providers.*.models` rows without applying picker allowlists.
 - Chat and New Session keep the Default reset choice pinned in its provider group, then put the selected model before the remaining catalog choices. Models settings puts the selected model first. Other rows keep the Gateway's catalog order, including provider-curated recommendations where supplied. Text `/models <provider>` pages also put the current model first instead of alphabetizing the catalog. Picker search checks the full list, not just the visible rows.
+- Signing in to a provider keeps existing choices visible in open Control UI and terminal model pickers while discovery refreshes in the background. Changes to model restrictions, operator roles, or catalog mode still retire the old choices until the replacement catalog is ready.
+- The first catalog published after Gateway startup uses the same provider-owned model order as later refreshes. Captured rows inherit provider recommendations where available; rows without a provider rank keep the catalog's alphabetical fallback.
 
 On shared Gateways, an administrator can also configure a [named role's model
 policy](/gateway/operator-scopes#named-operator-roles). Model discovery and the
 Control UI, macOS, and iOS chat pickers show only the models permitted by that policy.
 This also applies to New Session in the Control UI. The Default choice uses a permitted automatic default; it does not grant additional
-manual choices. Configuration changes discard old choices before refreshing the
-catalog. Saved conversations retain their historical model information.
+manual choices. Changes to model restrictions, operator roles, or catalog mode
+discard old choices before refreshing the catalog. Saved conversations retain
+their historical model information.
 Filtering alone does not overwrite saved New Session model preferences. A saved
 choice can return when the policy permits it again; explicitly choosing another
 model still updates the preference.
@@ -270,8 +273,10 @@ openclaw config set agents.defaults.modelPolicy.allow '["openai/gpt-5.4","anthro
 ### Choose the same model with different runtimes
 
 Set `pickerRuntimes` on an exact model entry to offer additional runtime choices
-in the Control UI. The entries share the model name and differ by their harness
-label. The configured `agentRuntime` remains the default:
+in the Control UI. Each entry shows its harness label. When both OpenClaw and
+Codex are configured for the same model, the Codex choice appends `codex` to its
+name. A model with only one configured harness keeps its plain name. The
+configured `agentRuntime` remains the default:
 
 ```json5
 {
