@@ -132,7 +132,11 @@ describe("SSH post-seed inbound staging", () => {
               message: "Read this document",
               idempotencyKey: "ssh-upload",
               attachments: [
-                { fileName: "photo.txt", mimeType: "text/plain", content: payload.toString("base64") },
+                {
+                  fileName: "photo.txt",
+                  mimeType: "text/plain",
+                  content: payload.toString("base64"),
+                },
               ],
             },
           });
