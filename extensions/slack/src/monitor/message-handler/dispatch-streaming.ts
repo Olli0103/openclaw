@@ -51,11 +51,14 @@ export function createSlackStreamingDeliveryRuntime(setup: SlackDispatchSetup) {
     slackMessageMetadata,
     slackStreamFallbackTeamId,
   } = setup;
+  const boundaryState: {
+    streamBoundary: ReturnType<typeof trackSlackDraftMessage> | null;
+    interruptedThreadTs: string | undefined;
+  } = { streamBoundary: null, interruptedThreadTs: undefined };
   const state = {
     streamSession: null as SlackStreamSession | null,
-    streamBoundary: null as ReturnType<typeof trackSlackDraftMessage> | null,
+    ...boundaryState,
     streamInterrupted: false,
-    interruptedThreadTs: undefined as string | undefined,
     nativeProgressStreamStartPromise: null as Promise<SlackStreamSession | null> | null,
     nativeProgressStreamThreadTs: undefined as string | undefined,
     streamFailed: false,
@@ -73,7 +76,9 @@ export function createSlackStreamingDeliveryRuntime(setup: SlackDispatchSetup) {
       accountId: account.accountId,
       teamId: prepared.eventScope?.teamId,
       channelId: message.channel,
-      threadTs: params.threadTs,
+      // Ingress records the conversation from the inbound message, while
+      // params.threadTs is only the outbound delivery target.
+      threadTs: message.thread_ts,
       onInterveningMessage: () => {
         state.streamInterrupted = true;
       },
@@ -293,10 +298,22 @@ export function createSlackStreamingDeliveryRuntime(setup: SlackDispatchSetup) {
       return undefined;
     }
     state.streamInterrupted = false;
+    if (state.streamSession?.stoppedBySlack) {
+      // A native Stop belongs to the turn, not just the old message identity.
+      // Retain the stopped session so all late progress and finals stay suppressed.
+      state.streamBoundary?.stop();
+      state.streamBoundary = null;
+      return undefined;
+    }
     const threadTs = state.streamSession?.threadTs ?? state.nativeProgressStreamThreadTs;
     // Finalize the visible pre-boundary message exactly once before any later
     // output is admitted to a fresh Slack message in the same thread.
     await finishStream();
+    if (state.streamSession?.stoppedBySlack) {
+      // Slack can Stop the stream while the sealing request is in flight.
+      // Keep that turn-level cancellation visible to all later delivery paths.
+      return undefined;
+    }
     state.streamSession = null;
     state.interruptedThreadTs = threadTs;
     return threadTs;
@@ -311,6 +328,9 @@ export function createSlackStreamingDeliveryRuntime(setup: SlackDispatchSetup) {
       return { visibleReplySent: false };
     }
     await rotateInterruptedStream();
+    if (state.streamSession?.stoppedBySlack) {
+      return { visibleReplySent: false };
+    }
     const replyThreadTs =
       params.forcedThreadTs ?? state.interruptedThreadTs ?? resolveDeliveryThreadTs(params);
     const deliveryReplyThreadTs =
