@@ -1,0 +1,164 @@
+name: iOS Talk simulator package (fork only)
+
+on:
+  push:
+    branches:
+      - artifact/ios-talk-sim-162784
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    if: github.repository == 'Olli0103/openclaw' && github.ref == 'refs/heads/artifact/ios-talk-sim-162784'
+    runs-on: macos-26-arm64
+    timeout-minutes: 90
+    env:
+      SOURCE_SHA: 8cfe13562e2140be4f028ec50db17b2cf0606563
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - name: Checkout exact PR source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 8cfe13562e2140be4f028ec50db17b2cf0606563
+          persist-credentials: false
+
+      - name: Verify immutable source and toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          test -d "$DEVELOPER_DIR"
+          xcodebuild -version
+          swift --version
+          xcrun --sdk iphonesimulator --show-sdk-version
+          test "$(uname -m)" = arm64
+
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: '24.21.0'
+          install-bun: 'false'
+          cache-mode: 'off'
+
+      - name: Install pinned native tools and Watch toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools_dir="$RUNNER_TEMP/ios-talk-tools"
+          ./scripts/install-xcodegen.sh "$tools_dir"
+          ./scripts/install-swift-tools.sh "$tools_dir"
+          echo "$tools_dir" >> "$GITHUB_PATH"
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup toolchain install nightly-2026-09-05 --profile minimal --component rust-src
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Build unsigned arm64 simulator app
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm ios:gen
+          xcodebuild \
+            -project apps/ios/OpenClaw.xcodeproj \
+            -scheme OpenClaw \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/OpenClawDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build > "$RUNNER_TEMP/ios-talk-build.log" 2>&1 || {
+              tail -n 120 "$RUNNER_TEMP/ios-talk-build.log"
+              exit 1
+            }
+          tail -n 12 "$RUNNER_TEMP/ios-talk-build.log"
+
+      - name: Execute focused native Talk regression before packaging
+        shell: bash
+        run: |
+          set -euo pipefail
+          simulator_id="$(xcrun simctl list devices available --json | node --input-type=module -e '
+            const chunks = [];
+            for await (const chunk of process.stdin) chunks.push(chunk);
+            const devices = JSON.parse(Buffer.concat(chunks).toString("utf8")).devices;
+            const runtime = Object.keys(devices).find((key) => key.includes("iOS-26-5"));
+            if (!runtime) throw new Error("iOS 26.5 simulator runtime unavailable");
+            const phone = devices[runtime].find((device) => device.isAvailable && device.name.startsWith("iPhone"));
+            if (!phone) throw new Error("iOS 26.5 iPhone simulator unavailable");
+            process.stdout.write(phone.udid);
+          ')"
+          xcrun simctl boot "$simulator_id"
+          xcrun simctl bootstatus "$simulator_id" -b
+          log="$RUNNER_TEMP/ios-talk-tests.log"
+          xcodebuild \
+            -project apps/ios/OpenClaw.xcodeproj \
+            -scheme OpenClaw \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$simulator_id" \
+            -derivedDataPath "$RUNNER_TEMP/OpenClawDerivedData" \
+            -parallel-testing-enabled NO \
+            -only-testing:OpenClawTests/TalkModeManagerTests \
+            CODE_SIGNING_ALLOWED=NO \
+            test > "$log" 2>&1 || {
+              tail -n 120 "$log"
+              exit 1
+            }
+          grep -F 'Test "native Talk speaks a correlated reply without overriding the run deadline" passed' "$log" \
+            | tee "$RUNNER_TEMP/ios-talk-test-proof.txt"
+          grep -F 'Test "native Talk chat request inherits Gateway run timeout and thinking policy" passed' "$log" \
+            | tee -a "$RUNNER_TEMP/ios-talk-test-proof.txt"
+
+      - name: Package and attest exact-source app
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          app="$RUNNER_TEMP/OpenClawDerivedData/Build/Products/Debug-iphonesimulator/OpenClaw.app"
+          test -d "$app"
+          test -f "$app/OpenClaw"
+          xcrun lipo -archs "$app/OpenClaw" | grep -Eq '(^| )arm64($| )'
+          package_dir="$RUNNER_TEMP/ios-talk-package"
+          mkdir -p "$package_dir"
+          cp "$RUNNER_TEMP/ios-talk-test-proof.txt" "$package_dir/validation.txt"
+          archive="$package_dir/OpenClaw-ios-simulator-arm64-${SOURCE_SHA}.zip"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app" "$archive"
+          unzip -tq "$archive"
+          shasum -a 256 "$archive" > "$archive.sha256"
+          export APP_PATH="$app" ARCHIVE_PATH="$archive" MANIFEST_PATH="$package_dir/manifest.json"
+          python3 - <<'PY'
+          import hashlib, json, os, plistlib, subprocess
+          from pathlib import Path
+          app = Path(os.environ['APP_PATH'])
+          archive = Path(os.environ['ARCHIVE_PATH'])
+          with (app / 'Info.plist').open('rb') as f:
+              info = plistlib.load(f)
+          def sha256(path):
+              h = hashlib.sha256()
+              with Path(path).open('rb') as f:
+                  for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                      h.update(chunk)
+              return h.hexdigest()
+          manifest = {
+              'sourceSha': os.environ['SOURCE_SHA'],
+              'workflowSha': os.environ['GITHUB_SHA'],
+              'workflowRun': os.environ['GITHUB_RUN_ID'],
+              'runner': os.environ['RUNNER_NAME'],
+              'xcodeVersion': subprocess.check_output(['xcodebuild', '-version'], text=True).strip(),
+              'simulatorSdkVersion': subprocess.check_output(['xcrun', '--sdk', 'iphonesimulator', '--show-sdk-version'], text=True).strip(),
+              'architecture': subprocess.check_output(['xcrun', 'lipo', '-archs', str(app / 'OpenClaw')], text=True).strip(),
+              'bundleId': info['CFBundleIdentifier'],
+              'minimumOSVersion': info.get('MinimumOSVersion'),
+              'appBinarySha256': sha256(app / 'OpenClaw'),
+              'archive': archive.name,
+              'archiveSha256': sha256(archive),
+          }
+          Path(os.environ['MANIFEST_PATH']).write_text(json.dumps(manifest, indent=2) + '\n')
+          print(json.dumps(manifest, indent=2))
+          PY
+
+      - name: Upload simulator package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ios-talk-simulator-${{ env.SOURCE_SHA }}
+          path: ${{ runner.temp }}/ios-talk-package/
+          if-no-files-found: error
+          retention-days: 7
