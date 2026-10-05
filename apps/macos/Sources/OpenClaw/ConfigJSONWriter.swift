@@ -89,16 +89,17 @@ enum ConfigJSONWriter {
 
     /// Foundation owns JSON5 validation and key decoding. This scanner records
     /// only container order; it never interprets or replaces config values.
+    /// Syntax uses scalars so combining marks cannot absorb quote delimiters.
     private struct Parser {
-        let characters: [Character]
+        let scalars: [Unicode.Scalar]
         var index = 0
 
         init(_ source: String) {
-            self.characters = Array(source)
+            self.scalars = Array(source.unicodeScalars)
         }
 
-        private var current: Character? {
-            self.index < self.characters.count ? self.characters[self.index] : nil
+        private var current: Unicode.Scalar? {
+            self.index < self.scalars.count ? self.scalars[self.index] : nil
         }
 
         private func failure() -> Error {
@@ -118,23 +119,23 @@ enum ConfigJSONWriter {
 
         private mutating func skipTrivia() throws {
             while let char = self.current {
-                if char.isWhitespace || char == "\u{FEFF}" {
+                if char.properties.isWhitespace || char == "\u{FEFF}" {
                     self.index += 1
-                } else if char == "/", self.index + 1 < self.characters.count {
-                    let next = self.characters[self.index + 1]
+                } else if char == "/", self.index + 1 < self.scalars.count {
+                    let next = self.scalars[self.index + 1]
                     if next == "/" {
                         self.index += 2
-                        while let char = self.current, !char.isNewline {
+                        while let char = self.current, !CharacterSet.newlines.contains(char) {
                             self.index += 1
                         }
                     } else if next == "*" {
                         self.index += 2
-                        while self.index + 1 < self.characters.count,
-                              !(self.characters[self.index] == "*" && self.characters[self.index + 1] == "/")
+                        while self.index + 1 < self.scalars.count,
+                              !(self.scalars[self.index] == "*" && self.scalars[self.index + 1] == "/")
                         {
                             self.index += 1
                         }
-                        guard self.index + 1 < self.characters.count else { throw self.failure() }
+                        guard self.index + 1 < self.scalars.count else { throw self.failure() }
                         self.index += 2
                     } else {
                         return
@@ -155,7 +156,7 @@ enum ConfigJSONWriter {
                     guard self.current != nil else { throw self.failure() }
                     self.index += 1
                 } else if char == quote {
-                    return String(self.characters[start..<self.index])
+                    return String(String.UnicodeScalarView(self.scalars[start..<self.index]))
                 }
             }
             throw self.failure()
@@ -168,11 +169,11 @@ enum ConfigJSONWriter {
                 token = try self.quoted()
             } else {
                 let start = self.index
-                while let char = self.current, char != ":", char != "/", !char.isWhitespace {
+                while let char = self.current, char != ":", char != "/", !char.properties.isWhitespace {
                     self.index += 1
                 }
                 guard self.index > start else { throw self.failure() }
-                token = "\"" + String(self.characters[start..<self.index]) + "\""
+                token = "\"" + String(String.UnicodeScalarView(self.scalars[start..<self.index])) + "\""
             }
             let decoder = JSONDecoder()
             decoder.allowsJSON5 = true
@@ -225,7 +226,7 @@ enum ConfigJSONWriter {
                 _ = try self.quoted()
             } else {
                 let start = self.index
-                while let char = self.current, ![",", "}", "]", "/"].contains(char), !char.isWhitespace {
+                while let char = self.current, ![",", "}", "]", "/"].contains(char), !char.properties.isWhitespace {
                     self.index += 1
                 }
                 guard self.index > start else { throw self.failure() }

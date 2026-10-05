@@ -20,10 +20,38 @@ struct ConfigJSONWriterTests {
         for enabled in [false, true, false] {
             root["browser"] = ["enabled": enabled]
             let data = try ConfigJSONWriter.data(withJSONObject: root, preserving: raw)
-            raw = String(decoding: data, as: UTF8.self)
+            raw = try #require(String(bytes: data, encoding: .utf8))
             let reparsed = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
             #expect(NSDictionary(dictionary: root).isEqual(to: reparsed))
             for (first, second) in [("zmain", "alpha"), ("z", "a"), ("agents", "browser")] {
+                let firstPosition = try #require(raw.range(of: "\"\(first)\""))
+                let secondPosition = try #require(raw.range(of: "\"\(second)\""))
+                #expect(firstPosition.lowerBound < secondPosition.lowerBound)
+            }
+        }
+    }
+
+    @Test(arguments: ["\"", "'"])
+    func `literal combining marks do not hide JSON or JSON5 quotes`(_ quote: String) throws {
+        // Swift escapes create literal scalars in the source, not JSON escape sequences.
+        var raw = """
+        {\(quote)\u{301}key\(quote): {\(quote)z\(quote): \(quote)\u{301}value, } //\(quote), \(quote)a\(quote): 2},
+        \(quote)agents\(quote): {\(quote)entries\(quote): {\(quote)zmain\(quote): {}, \(quote)alpha\(quote): {}}},
+        \(quote)browser\(quote): {\(quote)enabled\(quote): true}}
+        """
+        let decoder = JSONDecoder()
+        decoder.allowsJSON5 = true
+        var root = try decoder.decode([String: OpenClawKit.AnyCodable].self, from: Data(raw.utf8))
+            .mapValues(\.foundationValue)
+        for enabled in [false, true, false] {
+            root["browser"] = ["enabled": enabled]
+            let data = try ConfigJSONWriter.data(withJSONObject: root, preserving: raw)
+            raw = try #require(String(bytes: data, encoding: .utf8))
+            let reparsed = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(NSDictionary(dictionary: root).isEqual(to: reparsed))
+            let marked = try #require(reparsed["\u{301}key"] as? [String: Any])
+            #expect(marked["z"] as? String == "\u{301}value, } //")
+            for (first, second) in [("\u{301}key", "agents"), ("z", "a"), ("zmain", "alpha")] {
                 let firstPosition = try #require(raw.range(of: "\"\(first)\""))
                 let secondPosition = try #require(raw.range(of: "\"\(second)\""))
                 #expect(firstPosition.lowerBound < secondPosition.lowerBound)
@@ -35,7 +63,7 @@ struct ConfigJSONWriterTests {
         let raw = #"{"z":1,"removed":2,"a":{"z":3,"a":4}}"#
         let root: [String: Any] = ["z": 1, "a": ["z": 5, "new": NSNull()], "c": true, "b": [1, "x"]]
         let data = try ConfigJSONWriter.data(withJSONObject: root, preserving: raw)
-        let text = String(decoding: data, as: UTF8.self)
+        let text = try #require(String(bytes: data, encoding: .utf8))
         #expect(!text.contains("removed"))
         let positions = try ["z", "a", "b", "c"].map { key in
             try #require(text.range(of: "\"\(key)\"")).lowerBound
@@ -56,7 +84,7 @@ struct ConfigJSONWriterTests {
         let source = #"{"items":[{"z":1,"a":2},{"a":3,"z":4}]}"#
         let items: [[String: Any]] = [["z": 1, "a": 2], ["a": 3, "z": 4], ["new": true]]
         let data = try ConfigJSONWriter.data(withJSONObject: ["items": indices.map { items[$0] }], preserving: source)
-        let text = String(decoding: data, as: UTF8.self)
+        let text = try #require(String(bytes: data, encoding: .utf8))
         let first = try #require(text.range(of: "\"a\": 3"))
         let second = try #require(text.range(of: "\"z\": 4"))
         #expect(first.lowerBound < second.lowerBound)
@@ -66,7 +94,7 @@ struct ConfigJSONWriterTests {
         let source = #"{"items":[{"z":1,"a":2},{"a":3,"z":4}]}"#
         let data = try ConfigJSONWriter.data(
             withJSONObject: ["items": [["z": 5, "a": 2], ["a": 3, "z": 6]]], preserving: source)
-        let text = String(decoding: data, as: UTF8.self)
+        let text = try #require(String(bytes: data, encoding: .utf8))
         let positions = try ["\"z\": 5", "\"a\": 2", "\"a\": 3", "\"z\": 6"].map {
             try #require(text.range(of: $0)).lowerBound
         }
