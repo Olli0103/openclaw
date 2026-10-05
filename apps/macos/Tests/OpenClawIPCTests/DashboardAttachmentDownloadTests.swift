@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Darwin
 import Foundation
 import Testing
@@ -63,6 +64,7 @@ struct DashboardAttachmentDownloadTests {
 
     @Test func `Dashboard attachment anchor saves original bytes without replacing its document`() async throws {
         try await AppKitTestSupport.startApplication()
+        try #require(AXIsProcessTrusted())
         let filename = "openclaw-attachment-test-\(UUID().uuidString).txt"
         let body = "The original Dashboard attachment bytes."
         let server = try await DashboardHTTPFixture.start(
@@ -73,7 +75,8 @@ struct DashboardAttachmentDownloadTests {
             </body>
             """,
             requestHandler: { request in
-                request.hasPrefix("GET /attachment/200 ") ? Self.response(status: 200, body: body) : nil
+                request.hasPrefix("GET /attachment/200 ") ? Self
+                    .response(status: 200, body: body, filename: filename) : nil
             })
         defer { server.stop() }
         let auth = DashboardWindowAuth.unauthenticated
@@ -88,6 +91,7 @@ struct DashboardAttachmentDownloadTests {
         try await DashboardTestWait.document(controller, "attachment source document")
         #expect(controller.canDownloadAttachments)
         let window = try #require(controller.window)
+        window.title = filename
         var destination: URL?
         var publication: AttachmentDownloadPublicationObserver?
         let sheets = AttachmentDownloadSheetObserver(window: window) { panel in
@@ -95,12 +99,11 @@ struct DashboardAttachmentDownloadTests {
                 // Keep the real Save panel and its runner-owned current directory.
                 // directoryURL is configuration-only, so do not change it here.
                 let directory = try #require(panel.directoryURL)
-                panel.nameFieldStringValue = filename
                 let target = directory.appendingPathComponent(filename)
                 try #require(!FileManager.default.fileExists(atPath: target.path))
                 destination = target
                 publication = try AttachmentDownloadPublicationObserver(directory: directory)
-                panel.ok(nil)
+
             } catch {
                 Issue.record(error)
                 panel.cancel(nil)
@@ -114,6 +117,9 @@ struct DashboardAttachmentDownloadTests {
         _ = try await controller.webView.evaluateJavaScript("document.getElementById('attachment').click(); null")
         try await navigation.changed.wait("Dashboard WebKit download conversion") { navigation.downloads == 1 }
         try await sheets.changed.wait("Dashboard Save panel") { sheets.savePanelsPresented == 1 }
+        // The remote Save panel does not implement NSSavePanel.ok on macOS 27.
+        // Read the self-owned AX tree on the main actor and press the real control.
+        try await TestWait.state("native Save control") { Self.pressNativeSave(windowTitle: filename) }
         let saved = try #require(destination)
         let published = try #require(publication)
         try await published.changed.wait("Dashboard attachment publication") {
@@ -187,13 +193,38 @@ struct DashboardAttachmentDownloadTests {
 
     private static func response(
         status: Int,
-        body: String = "This is an HTTP error, not the attachment.") -> String
+        body: String = "This is an HTTP error, not the attachment.",
+        filename: String = "attachment.txt") -> String
     {
         [
             "HTTP/1.1 \(status) \(status == 200 ? "OK" : "Error")", "Content-Type: application/octet-stream",
-            "Content-Disposition: attachment; filename=attachment.txt",
+            "Content-Disposition: attachment; filename=\(filename)",
             "Content-Length: \(body.utf8.count)", "Connection: close", "", body,
         ].joined(separator: "\r\n")
+    }
+
+    private static func pressNativeSave(windowTitle: String) -> Bool {
+        func value(_ element: AXUIElement, _ key: String) -> CFTypeRef? {
+            var result: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, key as CFString, &result) == .success else { return nil }
+            return result
+        }
+        func press(_ element: AXUIElement, depth: Int) -> Bool {
+            guard depth < 20 else { return false }
+            if value(element, kAXRoleAttribute) as? String == kAXButtonRole,
+               value(element, kAXTitleAttribute) as? String == "Save",
+               value(element, kAXEnabledAttribute) as? Bool == true
+            {
+                return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
+            }
+            return (value(element, kAXChildrenAttribute) as? [AXUIElement] ?? [])
+                .contains { press($0, depth: depth + 1) }
+        }
+        let app = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
+        guard let windows = value(app, kAXWindowsAttribute) as? [AXUIElement],
+              let window = windows.first(where: { value($0, kAXTitleAttribute) as? String == windowTitle })
+        else { return false }
+        return press(window, depth: 0)
     }
 }
 

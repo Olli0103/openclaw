@@ -5,7 +5,9 @@ import OpenClawKit
 import WebKit
 
 private final class DashboardWindowContentView: NSView {
-    override var mouseDownCanMoveWindow: Bool {
+    /// AppKit queries this constant during native display-cycle callbacks, outside
+    /// Swift task execution. No actor-owned state is read.
+    override nonisolated var mouseDownCanMoveWindow: Bool {
         true
     }
 
