@@ -70,11 +70,11 @@ jobs:
           echo "PROOF_IMAGE=$proof_image" >> "$GITHUB_ENV"
           node -e 'const fs=require("node:fs");const hash=require("node:crypto").createHash("sha256").update(fs.readFileSync(process.argv[4])).digest("hex");fs.writeFileSync(".artifacts/pr-157783-native-memory/image.json",JSON.stringify({baseImage:process.argv[1],proofImage:process.argv[2],pnpmVersion:process.argv[3],bunVersion:"1.4.2",bunSHA256:hash},null,2)+"\n")' "$base_image" "$proof_image" "$pnpm_version" "$bun_path"
 
-      - name: Full cold pnpm build with automatic limit in 14 GiB
+      - name: Full cold pnpm build with automatic limit in 13.75 GiB
         id: build_auto
         run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run build-auto
 
-      - name: Full cold pnpm build with caller 6 GiB override in 14 GiB
+      - name: Full cold pnpm build with caller 6 GiB override in 13.75 GiB
         id: build_override
         if: ${{ !cancelled() && steps.build_auto.outcome == 'success' }}
         run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run build-override
@@ -88,11 +88,11 @@ jobs:
         if: ${{ !cancelled() && steps.build_override.outcome == 'success' }}
         run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run smoke
 
-      - name: Full pnpm check in contained 14 GiB
+      - name: Full pnpm check in contained 13.75 GiB
         if: ${{ !cancelled() && steps.build_override.outcome == 'success' }}
         run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run check
 
-      - name: Full pnpm test in contained 14 GiB
+      - name: Full pnpm test in contained 13.75 GiB
         if: ${{ !cancelled() && steps.build_override.outcome == 'success' }}
         run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run test
 

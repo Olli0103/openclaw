@@ -11,6 +11,9 @@ import path from "node:path";
 const expectedHead = "078fe921e196b2255dfc228d4834fce5f5e58a97";
 const GiB = 1024 ** 3;
 const MiB = 1024 ** 2;
+function containmentBytesForCell(cell) {
+  return (cell === "focused-10" ? 10 : 13.75) * GiB;
+}
 const output = path.resolve(".artifacts/pr-157783-native-memory");
 const read = (file) => fs.readFileSync(file, "utf8").trim();
 const optionalRead = (file) => {
@@ -70,6 +73,7 @@ function cgroupMemory() {
 function hostReceipt(cell) {
   verifyHead();
   const memory = memoryInfo();
+  const containmentBytes = containmentBytesForCell(cell);
   const record = /^0::(.*)$/mu.exec(read("/proc/self/cgroup"))?.[1];
   const hierarchy = [];
   let directory = record ? path.join("/sys/fs/cgroup", record) : "/sys/fs/cgroup";
@@ -95,7 +99,7 @@ function hostReceipt(cell) {
     memory,
     hierarchy,
     capacityBytes,
-    containmentBytes: 14 * GiB,
+    containmentBytes,
     requiredHostHeadroomBytes: 256 * MiB,
     runnerClass:
       "standard public ubuntu-24.04 (advertised 4 vCPU / 16 GB); measured capacity is authoritative",
@@ -104,12 +108,12 @@ function hostReceipt(cell) {
   console.log(JSON.stringify(receipt));
   assert.equal(process.platform, "linux");
   assert.ok(
-    capacityBytes >= 14 * GiB + 256 * MiB,
-    "Actual host/cgroup capacity is too small for the requested 14 GiB cell",
+    capacityBytes >= containmentBytes + receipt.requiredHostHeadroomBytes,
+    `Actual host/cgroup capacity is too small for the requested ${containmentBytes / GiB} GiB cell`,
   );
   assert.ok(
-    memory.MemAvailable >= 14 * GiB + 256 * MiB,
-    "Actual host headroom is too small for the requested 14 GiB cell",
+    memory.MemAvailable >= containmentBytes + receipt.requiredHostHeadroomBytes,
+    `Actual host headroom is too small for the requested ${containmentBytes / GiB} GiB cell`,
   );
 }
 function baseEnvironment() {
@@ -582,7 +586,7 @@ async function runtimeSmoke(env) {
 async function containerCell(name) {
   verifyHead();
   fs.mkdirSync(output, { recursive: true });
-  const expectedLimit = (name === "focused-10" ? 10 : 14) * GiB,
+  const expectedLimit = containmentBytesForCell(name),
     memory = cgroupMemory();
   write(`${name}-containment.json`, {
     expectedHead,
@@ -661,7 +665,7 @@ async function runContainer(name) {
     bun && fs.statSync(bun).isFile(),
     "Provision the source-pinned standalone Bun executable first",
   );
-  const size = name === "focused-10" ? "10g" : "14g";
+  const size = String(containmentBytesForCell(name));
   const args = [
     "run",
     "--rm",
