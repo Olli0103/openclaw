@@ -35,9 +35,6 @@ export function budgetStagedDeclarationInvocations(
   concurrency: 1 | 2,
   params: MemoryLimitParams = {},
 ) {
-  if (concurrency === 1) {
-    return invocations;
-  }
   // Resolve one shared snapshot, so small changes in available memory between
   // siblings cannot give each child a different share of the same budget.
   const limit = resolveNativeDeclarationCompilerEnv({
@@ -142,6 +139,7 @@ export async function writeTsdownDeclarations(
         const plan = prepareTsdownBuildExecution(
           {
             args: ["--config", "tsdown.config.ts", "--filter", name, "--out-dir", groupOutput],
+            deferNativeDeclarationMemory: true,
           },
           {
             // Every compiler owns a fresh stage; live runtime outputs stay intact.

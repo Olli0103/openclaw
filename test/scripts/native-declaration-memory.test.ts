@@ -1,7 +1,10 @@
 import { expect, it } from "vitest";
 import { resolveNativeDeclarationCompilerEnv } from "../../scripts/lib/native-declaration-memory.mts";
 import { budgetStagedDeclarationInvocations } from "../../scripts/lib/tsdown-declaration-writer.mts";
-import type { prepareTsdownBuildExecution } from "../../scripts/tsdown-build.mts";
+import {
+  resolveTsdownBuildInvocation,
+  type prepareTsdownBuildExecution,
+} from "../../scripts/tsdown-build.mts";
 
 const GIB = 1024 ** 3;
 const MEMORY_FIXTURE = {
@@ -56,11 +59,52 @@ it("splits the automatic Go budget between two simultaneous compiler children", 
   expect(invocations.every((invocation) => invocation.options.env.GOMEMLIMIT === undefined)).toBe(
     true,
   );
-  expect(budgetStagedDeclarationInvocations(invocations, 1, params)).toBe(invocations);
+  expect(
+    budgetStagedDeclarationInvocations(invocations, 1, params).map(
+      (invocation) => invocation.options.env.GOMEMLIMIT,
+    ),
+  ).toEqual(["14745MiB", "14745MiB"]);
   const overridden = budgetStagedDeclarationInvocations(
     [{ ...invocations[0]!, options: { ...invocations[0]!.options, env: { GOMEMLIMIT: "9GiB" } } }],
     2,
     params,
   );
   expect(overridden[0]?.options.env.GOMEMLIMIT).toBe("9GiB");
+});
+
+it("passes the Go budget through direct declaration worker environments", () => {
+  const params = {
+    ...MEMORY_FIXTURE,
+    env: {},
+    physicalMemoryBytes: 16 * GIB,
+    availableMemoryBytes: 16 * GIB,
+    cgroupMemoryLimitBytes: 10 * GIB,
+    args: ["--config", "tsdown.config.ts", "--filter", "openclaw-dts-base"],
+  };
+  expect(resolveTsdownBuildInvocation(params).options.env.GOMEMLIMIT).toBe("6144MiB");
+  expect(
+    resolveTsdownBuildInvocation({ ...params, args: [...params.args, "--concurrency", "3"] })
+      .options.env.GOMEMLIMIT,
+  ).toBe("2048MiB");
+  expect(
+    resolveTsdownBuildInvocation({ ...params, env: { GOMEMLIMIT: "6GiB" } }).options.env.GOMEMLIMIT,
+  ).toBe("6GiB");
+  expect(
+    resolveTsdownBuildInvocation({ ...params, args: [...params.args, "--watch"] }).options.env
+      .GOMEMLIMIT,
+  ).toBeUndefined();
+  expect(
+    resolveTsdownBuildInvocation({ ...params, deferNativeDeclarationMemory: true }).options.env
+      .GOMEMLIMIT,
+  ).toBeUndefined();
+  expect(
+    resolveTsdownBuildInvocation({ ...params, args: [...params.args, "--no-dts"] }).options.env
+      .GOMEMLIMIT,
+  ).toBeUndefined();
+  expect(
+    resolveTsdownBuildInvocation({
+      ...params,
+      args: ["--config", "tsdown.config.ts", "--filter", "openclaw-unified"],
+    }).options.env.GOMEMLIMIT,
+  ).toBeUndefined();
 });
