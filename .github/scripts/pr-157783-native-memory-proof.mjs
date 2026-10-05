@@ -683,6 +683,14 @@ async function runContainer(name) {
     `type=bind,source=${bun},target=/usr/local/bin/bun,readonly`,
     "--workdir",
     "/work",
+    // The disposable root container mounts the runner-owned checkout. Trust
+    // only that exact mount, without changing host or image Git configuration.
+    "--env",
+    "GIT_CONFIG_COUNT=1",
+    "--env",
+    "GIT_CONFIG_KEY_0=safe.directory",
+    "--env",
+    "GIT_CONFIG_VALUE_0=/work",
     "--env",
     `PROOF_HEAD=${expectedHead}`,
     "--env",
