@@ -51,7 +51,8 @@ struct ConfigStoreTests {
                             JSONSerialization.jsonObject(with: Data(raw.value.utf8)) as? [String: Any])
                         config["browser"] = patch["browser"]
                         let updated = try JSONSerialization.data(withJSONObject: config)
-                        raw.withValue { $0 = String(decoding: updated, as: UTF8.self) }
+                        let updatedText = try #require(String(bytes: updated, encoding: .utf8))
+                        raw.withValue { $0 = updatedText }
                     }
                     received.withValue { $0.append(next) }
                     payload = ["ok": true]
@@ -208,17 +209,19 @@ struct ConfigStoreTests {
             .appendingPathComponent("openclaw-state-\(UUID().uuidString)", isDirectory: true)
         let configPath = stateDir.appendingPathComponent("openclaw.json")
         defer { try? FileManager().removeItem(at: stateDir) }
+        let environment = [
+            "OPENCLAW_STATE_DIR": stateDir.path,
+            "OPENCLAW_CONFIG_PATH": configPath.path,
+        ]
 
         let failure = NSError(domain: "Gateway", code: 0, userInfo: [
             NSLocalizedDescriptionKey: "config changed since last load; re-run config.get and retry",
         ])
-        try await self.withOverrides(.init(
+        let overrides = ConfigStore.Overrides(
             isRemoteMode: { false },
             loadLocal: { OpenClawConfigFile.loadDict() },
-            saveGateway: { _ in throw failure }), env: [
-            "OPENCLAW_STATE_DIR": stateDir.path,
-            "OPENCLAW_CONFIG_PATH": configPath.path,
-        ]) {
+            saveGateway: { _ in throw failure })
+        try await self.withOverrides(overrides, env: environment) {
             OpenClawConfigFile.saveDict([
                 "gateway": [
                     "mode": "local",
@@ -248,18 +251,20 @@ struct ConfigStoreTests {
             .appendingPathComponent("openclaw-state-\(UUID().uuidString)", isDirectory: true)
         let configPath = stateDir.appendingPathComponent("openclaw.json")
         defer { try? FileManager().removeItem(at: stateDir) }
+        let environment = [
+            "OPENCLAW_STATE_DIR": stateDir.path,
+            "OPENCLAW_CONFIG_PATH": configPath.path,
+        ]
 
-        try await self.withOverrides(.init(
+        let overrides = ConfigStore.Overrides(
             isRemoteMode: { false },
             loadLocal: { OpenClawConfigFile.loadDict() },
             saveGateway: { _ in
                 throw NSError(domain: "Gateway", code: 0, userInfo: [
                     NSLocalizedDescriptionKey: "gateway not configured",
                 ])
-            }), env: [
-            "OPENCLAW_STATE_DIR": stateDir.path,
-            "OPENCLAW_CONFIG_PATH": configPath.path,
-        ]) {
+            })
+        try await self.withOverrides(overrides, env: environment) {
             try await self.saveLoadedDocument([
                 "gateway": ["mode": "local"],
                 "browser": ["enabled": false],
