@@ -70,11 +70,11 @@ jobs:
           echo "PROOF_IMAGE=$proof_image" >> "$GITHUB_ENV"
           node -e 'const fs=require("node:fs");const hash=require("node:crypto").createHash("sha256").update(fs.readFileSync(process.argv[4])).digest("hex");fs.writeFileSync(".artifacts/pr-157783-native-memory/image.json",JSON.stringify({baseImage:process.argv[1],proofImage:process.argv[2],pnpmVersion:process.argv[3],bunVersion:"1.4.2",bunSHA256:hash},null,2)+"\n")' "$base_image" "$proof_image" "$pnpm_version" "$bun_path"
 
-      - name: Full cold pnpm build with automatic limit in 13.75 GiB
+      - name: Full cold pnpm build with automatic limit in 13 GiB
         id: build_auto
         run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run build-auto
 
-      - name: Full cold pnpm build with caller 6 GiB override in 13.75 GiB
+      - name: Full cold pnpm build with caller 6 GiB override in 13 GiB
         id: build_override
         if: ${{ !cancelled() && steps.build_auto.outcome == 'success' }}
         run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run build-override
@@ -88,19 +88,16 @@ jobs:
         if: ${{ !cancelled() && steps.build_override.outcome == 'success' }}
         run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run smoke
 
-      - name: Full pnpm check in contained 13.75 GiB
+      - name: Full pnpm check in contained 13 GiB
         if: ${{ !cancelled() && steps.build_override.outcome == 'success' }}
         run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run check
 
-      - name: Full pnpm test in contained 13.75 GiB
+      - name: Full pnpm test in contained 13 GiB
         if: ${{ !cancelled() && steps.build_override.outcome == 'success' }}
         run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run test
 
-      - name: Focused base declarations in 10 GiB (not full-build proof)
-        if: ${{ !cancelled() && steps.provision.outcome == 'success' }}
-        run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run focused-10
-
-      - name: Capacity-gated parallel declarations with explicit lowered Node heaps
+      # Exact-head focused 10 GiB proof already passed in run 37271810502.
+      - name: Two nonempty extension partitions with explicit 5 GiB Node heaps
         if: ${{ !cancelled() && steps.provision.outcome == 'success' }}
         run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run parallel
 

@@ -6,13 +6,14 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 // Exact rebased PR head; keep the workflow pin synchronized.
 const expectedHead = "078fe921e196b2255dfc228d4834fce5f5e58a97";
 const GiB = 1024 ** 3;
 const MiB = 1024 ** 2;
 function containmentBytesForCell(cell) {
-  return (cell === "focused-10" ? 10 : 13.75) * GiB;
+  return (cell === "focused-10" ? 10 : 13) * GiB;
 }
 const output = path.resolve(".artifacts/pr-157783-native-memory");
 const read = (file) => fs.readFileSync(file, "utf8").trim();
@@ -652,13 +653,50 @@ async function containerCell(name) {
     await runMeasured(
       name,
       process.execPath,
-      ["--import", "./scripts/tsx.mjs", "scripts/write-plugin-sdk-entry-dts.ts"],
+      [
+        "--import",
+        "./scripts/tsx.mjs",
+        "/proof/.github/scripts/pr-157783-native-memory-proof.mjs",
+        "parallel-owner",
+      ],
       env,
       { expectCompilers: true, sharedBudget: true },
     );
   } else if (name === "smoke") await runtimeSmoke(env);
   else if (name === "check" || name === "test") await runMeasured(name, "pnpm", [name], env);
   else throw new Error(`Unknown contained cell: ${name}`);
+}
+async function parallelOwner() {
+  verifyHead();
+  const sourceModule = (file) => import(pathToFileURL(path.resolve(file)).href);
+  const { default: configs } = await sourceModule("tsdown.config.ts");
+  // Production's second SDK partition is empty outside private QA. Select two
+  // nonempty canonical extension partitions without changing any source inputs.
+  const selected = configs
+    .filter(
+      (config) =>
+        config.name?.startsWith("openclaw-dts-extensions-") &&
+        Array.isArray(config.dts?.entry) &&
+        config.dts.entry.length > 0,
+    )
+    .slice(0, 2);
+  assert.equal(selected.length, 2, "Two nonempty canonical declaration partitions required");
+  write("parallel-selection.json", {
+    expectedHead,
+    suppliedNodeHeapMiB: process.env.OPENCLAW_TSDOWN_MAX_OLD_SPACE_MB,
+    groups: selected.map((config) => ({ name: config.name, roots: config.dts.entry.length })),
+    scope:
+      "Real staged declaration owner on two canonical extension partitions; explicit lowered Node heaps, not default-heap admission on a larger host",
+  });
+  const { writeTsdownDeclarations } = await sourceModule(
+    "scripts/lib/tsdown-declaration-writer.mts",
+  );
+  await writeTsdownDeclarations(
+    selected.map((config) => config.name),
+    "proof-parallel-extensions",
+    () => [],
+    "scripts/write-unified-entry-dts.ts",
+  );
 }
 async function runContainer(name) {
   hostReceipt(name);
@@ -725,6 +763,7 @@ try {
   if (mode === "host") hostReceipt();
   else if (mode === "run") await runContainer(cell);
   else if (mode === "cell") await containerCell(cell);
+  else if (mode === "parallel-owner") await parallelOwner();
   else if (mode === "compare") compareManifests();
   else throw new Error("Expected host, run <cell>, cell <cell>, or compare");
 } catch (error) {
