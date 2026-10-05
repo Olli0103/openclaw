@@ -1,0 +1,3 @@
+total 16
+-rw-r--r--@ 1 admin  staff    40 Oct  5 15:25 attachment.txt
+-rw-r--r--@ 1 admin  staff  1103 Oct  5 15:54 native-dashboard-saved.docx

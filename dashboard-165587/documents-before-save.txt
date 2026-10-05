@@ -1,0 +1,2 @@
+total 8
+-rw-r--r--@ 1 admin  staff  40 Oct  5 15:25 attachment.txt

@@ -1,0 +1,98 @@
+{
+  "bundle-head.txt": {
+    "sha256": "d780c3ac1d4ff6261fb7de992f666613e49ca4125c997d05997bce3a1f172660",
+    "bytes": 41
+  },
+  "after-cancel.ax.txt": {
+    "sha256": "abdcd8f5823f34591a5264aceeca4abf2916a38b309f4ac9435291df7cd621ef",
+    "bytes": 15003
+  },
+  "dashboard-native-rendered-candidate.log": {
+    "sha256": "626eabf174fe23e3d43d7a0706c48ae975de1cc1e49372f5b3b59d6d983a9d8b",
+    "bytes": 17641
+  },
+  "seed-receipt.json": {
+    "sha256": "d3b75772d4857b34ca36d337d5da30c262c010e2413d4c1eb0c6e98bd15a6ddc",
+    "bytes": 114
+  },
+  "runtime.json": {
+    "sha256": "98937e6cc789c0ab779f469f1d0525296b6e2b651466326ef12189ceea594d1b",
+    "bytes": 213
+  },
+  "chat-surface.png": {
+    "sha256": "7ee206c0426d39d5887ee334862fa19c45cb7907af0f247f33cc7c63b34234f1",
+    "bytes": 948762
+  },
+  "cancel-sheet.png": {
+    "sha256": "58ec6796388c0133bbd3906f58524a7f0be7cc1d94cc413f3c55c14b387f70fa",
+    "bytes": 974139
+  },
+  "attachment-card.png": {
+    "sha256": "a89ade02370a3b67229e687750a5eef7dfc4adf3629f3d6fc20f84e6bef2832d",
+    "bytes": 949606
+  },
+  "codesign.txt": {
+    "sha256": "47a1be111077142708bab42be5f5d97f64138741683610ec35e66dbffb63d496",
+    "bytes": 426
+  },
+  "after-cancel.png": {
+    "sha256": "868b96b785568c103920c3f67755dfe39661399a44375e1598995f017c7f8169",
+    "bytes": 950859
+  },
+  "save-sheet.ax.txt": {
+    "sha256": "a1307dae510454843078c40c9222f6bb3135407212b4d9c78ae4e18704d3747f",
+    "bytes": 15435
+  },
+  "ticket-receipt.json": {
+    "sha256": "0f62893f94b2ef5ec46bbbc8fc7c26d43bffbd26f52623bd82955966452975ee",
+    "bytes": 205
+  },
+  "dashboard-native-full-candidate.log": {
+    "sha256": "f3a200de804bdb2ab20768098f8571bad12a0092fb12eff378a33452e59c94c9",
+    "bytes": 781590
+  },
+  "documents-before-save.txt": {
+    "sha256": "6987621ffe0d49672514e1570363428a7580def00d04b83aaafffe1ae6675053",
+    "bytes": 67
+  },
+  "README.md": {
+    "sha256": "ff461c455a760b0fb7319bf1eaa7666e70d24904b0104cf69806f4e62c1287d8",
+    "bytes": 2881
+  },
+  "cancel-receipt.json": {
+    "sha256": "7d47fb3e73784c4f7b6d20ac059762ab0987aab1a488570e0319af0993cf9cf2",
+    "bytes": 219
+  },
+  "documents-after-save.txt": {
+    "sha256": "3a11bbcf0aeeea8d4f9e415580e128e08bb34613ebe91e2ec02a35332399cb92",
+    "bytes": 144
+  },
+  "dashboard-native-named-candidate.log": {
+    "sha256": "e0627cde555ea73afc0a3cffaa73375ba6b092b843d1cde91a25aedd863c781e",
+    "bytes": 21282
+  },
+  "saved-receipt.json": {
+    "sha256": "adbf5091716524b67bdfbca8629236a8dd0cd339a6eb0b4ec4aaba86867daa4b",
+    "bytes": 251
+  },
+  "bundle-sha256.txt": {
+    "sha256": "a4f25d42949d252b92dcb958c14bc7d6d94d3aa937d504f8e76504160ec8fadb",
+    "bytes": 108
+  },
+  "save-sheet.png": {
+    "sha256": "d0186dc1979391caa02a9ffb23777dee407e8a447370973c7830dbc33b4d1534",
+    "bytes": 971391
+  },
+  "dashboard-native-final-candidate.log": {
+    "sha256": "45cfcec320b0619d580209156cbc7aeb7a17134286787b338488cec858a04bdf",
+    "bytes": 17463
+  },
+  "documents-after-cancel.txt": {
+    "sha256": "3a11bbcf0aeeea8d4f9e415580e128e08bb34613ebe91e2ec02a35332399cb92",
+    "bytes": 144
+  },
+  "documents-before-cancel.txt": {
+    "sha256": "3a11bbcf0aeeea8d4f9e415580e128e08bb34613ebe91e2ec02a35332399cb92",
+    "bytes": 144
+  }
+}

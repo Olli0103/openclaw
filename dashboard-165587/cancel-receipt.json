@@ -1,0 +1,5 @@
+{
+  "cancelNamedDestinationAbsent": true,
+  "destination": "/Users/admin/Documents/native-dashboard-cancelled.docx",
+  "note": "Combine with AX Cancel/dismissal capture; absence alone does not prove UI cancellation."
+}

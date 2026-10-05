@@ -1,0 +1,11 @@
+Executable=/Users/admin/proof/openclaw/dist/OpenClaw.app/Contents/MacOS/OpenClaw
+Identifier=ai.openclaw.mac.debug
+Format=app bundle with Mach-O thin (arm64)
+CodeDirectory v=20400 size=379406 flags=0x2(adhoc) hashes=11846+7 location=embedded
+Signature=adhoc
+Info.plist entries=33
+TeamIdentifier=not set
+Sealed Resources version=2 rules=13 files=42061
+Internal requirements count=0 size=12
+Total signatures=1
+Chosen signature=1
