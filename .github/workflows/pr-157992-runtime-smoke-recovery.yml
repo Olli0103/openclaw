@@ -1,0 +1,87 @@
+name: PR 157992 runtime smoke recovery
+
+on:
+  push:
+    branches:
+      - proof/native-runtime-smoke-157992
+
+permissions:
+  contents: read
+
+env:
+  PROOF_HEAD: 078fe921e196b2255dfc228d4834fce5f5e58a97
+  OPENCLAW_BUILD_TIMESTAMP: "2026-10-05T00:00:00.000Z"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  runtime-smoke-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.PROOF_HEAD }}
+          persist-credentials: false
+
+      - name: Check out workflow-pinned harness only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: proof-harness
+          sparse-checkout: .github/scripts/pr-157783-native-memory-proof.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Set up exact source dependencies without restored caches
+        uses: ./.github/actions/setup-node-env
+        with:
+          node-version: 24.21.0
+          install-bun: "true"
+          install-deps: "true"
+          frozen-lockfile: "true"
+          cache-mode: "off"
+
+      - name: Verify source and provision disposable proof image
+        id: provision
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PROOF_HEAD"
+          node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs host
+          bun_path="$RUNNER_TEMP/pr-157992-bun"
+          cp "$(readlink -f "$(command -v bun)")" "$bun_path"
+          chmod 755 "$bun_path"
+          test "$("$bun_path" --version)" = 1.4.2
+          echo "PROOF_BUN_PATH=$bun_path" >> "$GITHUB_ENV"
+          docker pull node:24.21.0-bookworm
+          base_image="$(docker image inspect node:24.21.0-bookworm --format '{{index .RepoDigests 0}}')"
+          pnpm_version="$(node -p 'require("./package.json").packageManager.match(/^pnpm@([^+]+)/)[1]')"
+          docker build --build-arg "BASE_IMAGE=$base_image" --build-arg "PNPM_VERSION=$pnpm_version" -t openclaw-declaration-proof - <<'DOCKERFILE'
+          ARG BASE_IMAGE
+          FROM ${BASE_IMAGE}
+          ARG PNPM_VERSION
+          RUN npm install --global "pnpm@${PNPM_VERSION}" && pnpm --version
+          DOCKERFILE
+          proof_image="$(docker image inspect openclaw-declaration-proof --format '{{.Id}}')"
+          echo "PROOF_IMAGE=$proof_image" >> "$GITHUB_ENV"
+          node -e 'const fs=require("node:fs");const hash=require("node:crypto").createHash("sha256").update(fs.readFileSync(process.argv[4])).digest("hex");fs.writeFileSync(".artifacts/pr-157783-native-memory/image.json",JSON.stringify({baseImage:process.argv[1],proofImage:process.argv[2],pnpmVersion:process.argv[3],bunVersion:"1.4.2",bunSHA256:hash},null,2)+"\n")' "$base_image" "$proof_image" "$pnpm_version" "$bun_path"
+
+      # Original run retains full declaration builds, override and output comparison.
+      # Only reconstruct the disposable runtime needed by the failed smoke gate.
+      - name: Build runtime only in 13 GiB without repeating declaration proof
+        id: runtime
+        run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run runtime-smoke-build
+
+      - name: Smoke built CLI and isolated loopback Gateway with correct probe contract
+        if: ${{ !cancelled() && steps.runtime.outcome == 'success' }}
+        run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run smoke
+
+      - name: Upload receipts, full manifests, comparisons and logs even on failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: pr-157992-runtime-smoke-recovery
+          path: .artifacts/pr-157783-native-memory/
+          if-no-files-found: warn
+          retention-days: 14

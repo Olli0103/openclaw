@@ -550,7 +550,7 @@ async function runtimeSmoke(env) {
         const response = await fetch("http://127.0.0.1:19441/readyz", {
           signal: AbortSignal.timeout(1500),
         });
-        if (response.ok && (await response.json()).ok === true) break;
+        if (response.ok && (await response.json()).ready === true) break;
       } catch {}
       await pause(500);
     }
@@ -559,8 +559,12 @@ async function runtimeSmoke(env) {
           signal: AbortSignal.timeout(3000),
         }),
         body = await response.json();
-      assert.ok(response.ok && body.ok === true, `Gateway ${endpoint} did not return ok`);
-      checks.push({ endpoint, status: response.status, ok: body.ok });
+      const field = endpoint === "readyz" ? "ready" : "ok";
+      assert.ok(
+        response.ok && body[field] === true,
+        `Gateway ${endpoint} did not return ${field}=true`,
+      );
+      checks.push({ endpoint, status: response.status, field, value: body[field] });
     }
     success = true;
   } finally {
@@ -662,6 +666,12 @@ async function containerCell(name) {
       env,
       { expectCompilers: true, sharedBudget: true },
     );
+  } else if (name === "runtime-smoke-build") {
+    // Narrow recovery for runtime smoke. Declaration builds and output equality
+    // remain evidenced by the original run; do not repeat those proof cells.
+    coldOutputs();
+    env.OPENCLAW_RUN_NODE_SKIP_DTS_BUILD = "1";
+    await runMeasured(name, "pnpm", ["build"], env);
   } else if (name === "smoke") await runtimeSmoke(env);
   else if (name === "check" || name === "test") await runMeasured(name, "pnpm", [name], env);
   else throw new Error(`Unknown contained cell: ${name}`);
