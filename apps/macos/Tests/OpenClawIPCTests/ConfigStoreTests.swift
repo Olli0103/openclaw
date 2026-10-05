@@ -9,8 +9,11 @@ import Testing
 @MainActor
 struct ConfigStoreTests {
     @Test(arguments: [true, false])
-    func `gateway saves preserve source order and refuse missing source`(_ hasSource: Bool) async throws {
-        let initial = #"{"agents":{"ownership":"explicit","entries":{"zmain":{},"alpha":{}}},"browser":{"enabled":true}}"#
+    func `gateway saves preserve order with raw or intentionally redacted source`(_ hasSource: Bool) async throws {
+        let initial = #"""
+        {"agents":{"ownership":"explicit","entries":{"zmain":{},"alpha":{}}},
+        "gateway":{"mode":"local","auth":{"token":"__OPENCLAW_REDACTED__"}},"browser":{"enabled":true}}
+        """#
         let raw = LockIsolated(initial)
         let received = LockIsolated<[String]>([])
         let session = GatewayTestWebSocketSession(taskFactory: {
@@ -26,15 +29,30 @@ struct ConfigStoreTests {
                 let payload: [String: Any]
                 if frame["method"] as? String == "config.get" {
                     let config = try JSONSerialization.jsonObject(with: Data(raw.value.utf8))
-                    var snapshot: [String: Any] = ["config": config, "hash": "synthetic-revision"]
+                    var snapshot: [String: Any] = [
+                        "config": config, "valid": true, "exists": true, "hash": "synthetic-revision",
+                        "raw": NSNull(),
+                    ]
                     if hasSource { snapshot["raw"] = raw.value }
                     payload = snapshot
                 } else {
-                    #expect(frame["method"] as? String == "config.set")
+                    #expect(frame["method"] as? String == (hasSource ? "config.set" : "config.patch"))
                     let params = try #require(frame["params"] as? [String: Any])
                     #expect(params["baseHash"] as? String == "synthetic-revision")
                     let next = try #require(params["raw"] as? String)
-                    raw.withValue { $0 = next }
+                    if hasSource {
+                        raw.withValue { $0 = next }
+                    } else {
+                        let patch = try #require(JSONSerialization.jsonObject(with: Data(next.utf8)) as? [String: Any])
+                        #expect(Set(patch.keys) == ["browser"])
+                        #expect(patch["gateway"] == nil)
+                        #expect(patch["agents"] == nil)
+                        var config = try #require(
+                            JSONSerialization.jsonObject(with: Data(raw.value.utf8)) as? [String: Any])
+                        config["browser"] = patch["browser"]
+                        let updated = try JSONSerialization.data(withJSONObject: config)
+                        raw.withValue { $0 = String(decoding: updated, as: UTF8.self) }
+                    }
                     received.withValue { $0.append(next) }
                     payload = ["ok": true]
                 }
@@ -50,16 +68,7 @@ struct ConfigStoreTests {
                 for enabled in [false, true, false] {
                     var document = await ConfigStore.load(gateway: gateway)
                     document.root["browser"] = ["enabled": enabled]
-                    if hasSource {
-                        try await ConfigStore.save(document)
-                    } else {
-                        do {
-                            try await ConfigStore.save(document)
-                            Issue.record("A populated document without its source text must not be saved")
-                        } catch {
-                            #expect((error as NSError).code == 4)
-                        }
-                    }
+                    try await ConfigStore.save(document)
                 }
             }
         } catch {
@@ -67,8 +76,8 @@ struct ConfigStoreTests {
             throw error
         }
         await gateway.shutdown()
-        #expect(received.value.count == (hasSource ? 3 : 0))
-        for text in received.value {
+        #expect(received.value.count == 3)
+        for text in received.value where hasSource {
             let main = try #require(text.range(of: "\"zmain\""))
             let other = try #require(text.range(of: "\"alpha\""))
             #expect(main.lowerBound < other.lowerBound)
