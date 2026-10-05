@@ -1,4 +1,4 @@
-name: PR 157783 native declaration memory proof
+name: PR 157992 async declaration memory proof
 
 on:
   push:
@@ -8,50 +8,107 @@ on:
 permissions:
   contents: read
 
+env:
+  # Exact rebased PR head; keep the matching harness pin synchronized.
+  PROOF_HEAD: 078fe921e196b2255dfc228d4834fce5f5e58a97
+  OPENCLAW_BUILD_TIMESTAMP: "2026-10-05T00:00:00.000Z"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
-  cold-declarations-10g:
+  cold-build-and-declarations:
+    # Public standard runner: advertised 4 CPUs / 16 GB, NOT 24 GiB.
+    # Actual capacity and headroom are verified before each contained cell.
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 180
     steps:
-      - name: Check out exact PR head
+      - name: Check out exact candidate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: 726dea10b3e54389935e0c27744d2cfc35763dd5
+          ref: ${{ env.PROOF_HEAD }}
           persist-credentials: false
-      - name: Check out proof harness only
+
+      - name: Check out workflow-pinned harness only
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
           path: proof-harness
           sparse-checkout: .github/scripts/pr-157783-native-memory-proof.mjs
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - name: Verify candidate source
-        shell: bash
-        run: |
-          test "$(git rev-parse HEAD)" = 726dea10b3e54389935e0c27744d2cfc35763dd5
-          test -f proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs
-          echo "Candidate source: $(git rev-parse HEAD)"
-      - name: Set up source dependencies
+
+      - name: Set up exact source dependencies without restored caches
         uses: ./.github/actions/setup-node-env
         with:
           node-version: 24.21.0
-          install-bun: "false"
+          install-bun: "true"
           install-deps: "true"
+          frozen-lockfile: "true"
           cache-mode: "off"
-      - name: Cold declaration group under real 10 GiB cgroup
+
+      - name: Verify source and provision disposable proof image
+        id: provision
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p .artifacts/pr-157783-native-memory
-          docker run --rm --memory=10g --memory-swap=10g --cpus=4 --network=none \
-            --mount type=bind,source="$GITHUB_WORKSPACE",target=/work \
-            --workdir /work node:24.21.0-bookworm \
-            node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs
-      - name: Upload sanitized memory receipt
+          test "$(git rev-parse HEAD)" = "$PROOF_HEAD"
+          node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs host
+          bun_path="$RUNNER_TEMP/pr-157992-bun"
+          cp "$(readlink -f "$(command -v bun)")" "$bun_path"
+          chmod 755 "$bun_path"
+          test "$("$bun_path" --version)" = 1.4.2
+          echo "PROOF_BUN_PATH=$bun_path" >> "$GITHUB_ENV"
+          docker pull node:24.21.0-bookworm
+          base_image="$(docker image inspect node:24.21.0-bookworm --format '{{index .RepoDigests 0}}')"
+          pnpm_version="$(node -p 'require("./package.json").packageManager.match(/^pnpm@([^+]+)/)[1]')"
+          docker build --build-arg "BASE_IMAGE=$base_image" --build-arg "PNPM_VERSION=$pnpm_version" -t openclaw-declaration-proof - <<'DOCKERFILE'
+          ARG BASE_IMAGE
+          FROM ${BASE_IMAGE}
+          ARG PNPM_VERSION
+          RUN npm install --global "pnpm@${PNPM_VERSION}" && pnpm --version
+          DOCKERFILE
+          proof_image="$(docker image inspect openclaw-declaration-proof --format '{{.Id}}')"
+          echo "PROOF_IMAGE=$proof_image" >> "$GITHUB_ENV"
+          node -e 'const fs=require("node:fs");const hash=require("node:crypto").createHash("sha256").update(fs.readFileSync(process.argv[4])).digest("hex");fs.writeFileSync(".artifacts/pr-157783-native-memory/image.json",JSON.stringify({baseImage:process.argv[1],proofImage:process.argv[2],pnpmVersion:process.argv[3],bunVersion:"1.4.2",bunSHA256:hash},null,2)+"\n")' "$base_image" "$proof_image" "$pnpm_version" "$bun_path"
+
+      - name: Full cold pnpm build with automatic limit in 14 GiB
+        id: build_auto
+        run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run build-auto
+
+      - name: Full cold pnpm build with caller 6 GiB override in 14 GiB
+        id: build_override
+        if: ${{ !cancelled() && steps.build_auto.outcome == 'success' }}
+        run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run build-override
+
+      - name: Compare entire dist inventories and hashes
+        id: comparison
+        if: ${{ !cancelled() && steps.build_auto.outcome == 'success' && steps.build_override.outcome == 'success' }}
+        run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs compare
+
+      - name: Smoke built CLI and isolated loopback Gateway
+        if: ${{ !cancelled() && steps.build_override.outcome == 'success' }}
+        run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run smoke
+
+      - name: Full pnpm check in contained 14 GiB
+        if: ${{ !cancelled() && steps.build_override.outcome == 'success' }}
+        run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run check
+
+      - name: Full pnpm test in contained 14 GiB
+        if: ${{ !cancelled() && steps.build_override.outcome == 'success' }}
+        run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run test
+
+      - name: Focused base declarations in 10 GiB (not full-build proof)
+        if: ${{ !cancelled() && steps.provision.outcome == 'success' }}
+        run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run focused-10
+
+      - name: Capacity-gated parallel declarations with explicit lowered Node heaps
+        if: ${{ !cancelled() && steps.provision.outcome == 'success' }}
+        run: node proof-harness/.github/scripts/pr-157783-native-memory-proof.mjs run parallel
+
+      - name: Upload receipts, full manifests, comparisons and logs even on failure
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: pr-157783-native-memory-proof
+          name: pr-157992-async-memory-proof
           path: .artifacts/pr-157783-native-memory/
           if-no-files-found: warn
           retention-days: 14
