@@ -1,0 +1,17 @@
+{
+  "status": "passed",
+  "head": "9fbe51b94c95c17b17d4e0c490eab9b7502fa5f6",
+  "actualQuietSeconds": 120.25764850000002,
+  "recurringCronListRequests": 0,
+  "menuContinuityChecks": 23,
+  "initialRealGatewayPreview": true,
+  "cronPushUpdatedOpenPreview": true,
+  "reopenedFreshPreview": true,
+  "closeAction": "supported AXCancel (CG Escape ineffective)",
+  "continuationStarted": "2026-10-05T15:07:25.654Z",
+  "continuationFinished": "2026-10-05T15:07:27.996Z",
+  "retainedFailedObservation": "runtime-result-before-continuation.json",
+  "schedulerExecutionDisabled": true,
+  "gatewayPort": 28790,
+  "transparentRecorderPort": 28791
+}

@@ -1,0 +1,90 @@
+{
+  "bundle-head.txt": {
+    "sha256": "67b7c41cab7464e2c5ab1f5d166312280e290166ff2daa80b8603848ac2a19b5",
+    "bytes": 41
+  },
+  "quiet-120-seconds.png": {
+    "sha256": "8043cf711f67fb00c6c26260865399d9544584db3acf56c57f68163d6859a72d",
+    "bytes": 2293713
+  },
+  "codesign.txt": {
+    "sha256": "1185d25d2f019970957d8f36fc398079433d7f0a025d8a12b20156a9ccc09c20",
+    "bytes": 426
+  },
+  "closed.png": {
+    "sha256": "a0af9169843a6f3c9ca9d60934c6801a64e1250cfd1a2f044a98d0b45755d95b",
+    "bytes": 2432072
+  },
+  "reopened.png": {
+    "sha256": "2aa39fe389aa7ac76d0cd602e57d64160b4611e5d474ff527eb7da0558e6ccc5",
+    "bytes": 2289574
+  },
+  "toolchain.txt": {
+    "sha256": "1473575c5ecaba222e902cf14fc019cfabe0fa8cdd1a8fc91cef02033a128e9a",
+    "bytes": 273
+  },
+  "runtime-result.json": {
+    "sha256": "9aea5bd85f76712e2b53740cdea2f4c161465dd0ac870f8b354dbf508657c861",
+    "bytes": 635
+  },
+  "runtime-result-before-continuation.json": {
+    "sha256": "9c043c9ed125ed9015c2d598e03833df9510715532fc554e7fde750f39be442a",
+    "bytes": 126
+  },
+  "initial.png": {
+    "sha256": "16cf0d712dedfa117f0aa949a93d6618b894a140d1f1c446fd9cca555b7e08d3",
+    "bytes": 2293838
+  },
+  "event-updated.png": {
+    "sha256": "4a7ff06e77c40f5a074d3dd714858ce169aea39f0f2bab714c8d0c20c8d40b7f",
+    "bytes": 2289117
+  },
+  "README.md": {
+    "sha256": "ee37680ece967c462cedd056395f08fad55bc790357263e75a9e13ec2f91cd1f",
+    "bytes": 3284
+  },
+  "native-test-summary.json": {
+    "sha256": "113a6af0c1b1da96dbafa937a6c401c2265aea2a1f26fd227c0c0e7eedea42c5",
+    "bytes": 1271
+  },
+  "observation.jsonl": {
+    "sha256": "de857a9179931a36579c2c1013b1eb0f7489b45e60ee146e13c3439744826688",
+    "bytes": 3543
+  },
+  "ws.jsonl": {
+    "sha256": "c21c405ea9c05737fe028b8f9d0e5ec84040eb25b78d34cc6eb12c3b5fad6426",
+    "bytes": 89436
+  },
+  "bundle-sha256.txt": {
+    "sha256": "b8ef475045b28757f1a109c91eef8591115c1f1ea69ff971615a27f225b1678f",
+    "bytes": 108
+  },
+  "harness/cron-reopen-continuation.mjs": {
+    "sha256": "dd379c319ec92805c2b3a616eed24b69ae4f8f50106ab03018dca0a1e038c08e",
+    "bytes": 3360
+  },
+  "harness/cron-ax.swift": {
+    "sha256": "4cf8979740ad860aa95b17b55d601a470699df299be9cbb3906c043c60e66018",
+    "bytes": 5044
+  },
+  "harness/guest-bootstrap.sh": {
+    "sha256": "8e6d477a90dd3aa1ef12e323022b2a544845c8d1203ccf26f2b143dd6fcfa436",
+    "bytes": 776
+  },
+  "harness/cron-ws-recorder.mjs": {
+    "sha256": "5de692d89c47a90537d2f13fe655730f87af98be92b0f8f2915d1718fc8dbeec",
+    "bytes": 3596
+  },
+  "harness/cron-guest-native.sh": {
+    "sha256": "14515c28624e01656736577fb681d5cdde36c8c9e0ba1d4eccd285482972e0b7",
+    "bytes": 2358
+  },
+  "harness/cron-observe.mjs": {
+    "sha256": "e3976c1f93f1ca702b9c9e54e60eb784036274ca336a4a604e3406299057fee5",
+    "bytes": 8977
+  },
+  "harness/cron-README.md": {
+    "sha256": "278d9cdee561334a2452f6631869b1c890f90b9cb971ef5707b5a32328514dd9",
+    "bytes": 6449
+  }
+}
