@@ -13,6 +13,10 @@ import {
   findOpenClawAgentDatabaseIdentity,
   readOpenClawAgentDatabaseIdentity,
 } from "./openclaw-agent-db-identity.js";
+import {
+  matchesAgentDatabaseReadCandidatePath,
+  type OpenClawAgentDatabaseReadCandidateResource,
+} from "./openclaw-agent-db-resources.js";
 
 export type OpenClawAgentDatabaseValidation = {
   agentId: string;
@@ -77,9 +81,13 @@ function matchesValidation(
   );
 }
 
-function hasRevokedValidation(pathname: string): boolean {
+export function hasRevokedOpenClawAgentDatabaseValidation(
+  pathname: string,
+  received?: OpenClawAgentDatabaseValidation,
+): boolean {
   const previous = validatedPaths.get(path.resolve(pathname));
   return (
+    (received !== undefined && Atomics.load(new Int32Array(received.valid), 0) !== 1) ||
     previous?.revoked === true ||
     (previous?.validation !== undefined &&
       Atomics.load(new Int32Array(previous.validation.valid), 0) !== 1)
@@ -143,6 +151,9 @@ export function captureOpenClawAgentDatabaseValidationTransfer(
       (capturedValidation &&
         wasValid === 1 &&
         Atomics.load(new Int32Array(capturedValidation.valid), 0) !== 1) ||
+      (captured.validation !== capturedValidation &&
+        captured.validation &&
+        Atomics.load(new Int32Array(captured.validation.valid), 0) !== 1) ||
       !isRecord(received) ||
       received.agentId !== database.agentId ||
       received.identity !== identity ||
@@ -168,7 +179,7 @@ export function captureOpenClawAgentDatabaseValidationTransfer(
       valid: received.valid,
       canonicalReady: received.canonicalReady,
     };
-    if (hasRevokedValidation(pathname)) {
+    if (hasRevokedOpenClawAgentDatabaseValidation(pathname)) {
       Atomics.store(new Int32Array(validation.canonicalReady), 0, 0);
     }
     invalidateOpenClawAgentDatabaseValidation(pathname);
@@ -211,13 +222,18 @@ export function hasOpenClawAgentCanonicalValidation(
     !pathname ||
     database.db.isTransaction ||
     validatedPaths.get(path.resolve(pathname))?.validation !== undefined ||
-    hasRevokedValidation(pathname) ||
+    hasRevokedOpenClawAgentDatabaseValidation(pathname) ||
     !hasPersistedOpenClawAgentCanonicalValidation(database)
   ) {
     return false;
   }
   const canonical = createValidationReceipt({ ...database, path: pathname }, true);
-  validatedPaths.set(path.resolve(pathname), { validation: canonical, integrityVerified: false });
+  const entry: ValidationEntry = validatedPaths.get(path.resolve(pathname)) ?? {
+    integrityVerified: false,
+  };
+  // A canonical read enriches this owner; only revocation replaces its handoff identity.
+  entry.validation = canonical;
+  validatedPaths.set(path.resolve(pathname), entry);
   bindValidationLifetime({ ...database, path: pathname }, canonical);
   return true;
 }
@@ -258,7 +274,7 @@ export function adoptOpenClawAgentDatabaseValidation(
   if (getOpenClawAgentDatabaseValidation(database)) {
     return true;
   }
-  if (hasRevokedValidation(database.path)) {
+  if (hasRevokedOpenClawAgentDatabaseValidation(database.path)) {
     // Integrity handoff cannot replace the parent's requested canonical certification.
     Atomics.store(new Int32Array(validation.canonicalReady), 0, 0);
   }
@@ -310,7 +326,7 @@ function createValidationReceipt(
 export function setOpenClawAgentDatabaseValidation(
   database: ValidationDatabase,
 ): OpenClawAgentDatabaseValidation {
-  const revoked = hasRevokedValidation(database.path);
+  const revoked = hasRevokedOpenClawAgentDatabaseValidation(database.path);
   const validation = createValidationReceipt(
     database,
     isOpenClawAgentCanonicalStoreEmpty(database) ||
@@ -371,6 +387,19 @@ export function clearOpenClawAgentDatabaseValidationCache(rootPath?: string): vo
   for (const pathname of validatedPaths.keys()) {
     if (rootPath === undefined || isPathInside(rootPath, pathname)) {
       invalidateOpenClawAgentDatabaseValidation(pathname);
+      validatedPaths.delete(pathname);
+    }
+  }
+}
+
+/** Reader cleanup releases local metadata without revoking its parent's shared proof. */
+export function releaseOpenClawAgentDatabaseReadValidation(
+  candidates: readonly Pick<OpenClawAgentDatabaseReadCandidateResource, "path" | "scope">[],
+): void {
+  for (const pathname of validatedPaths.keys()) {
+    if (
+      candidates.some((candidate) => matchesAgentDatabaseReadCandidatePath(candidate, pathname))
+    ) {
       validatedPaths.delete(pathname);
     }
   }

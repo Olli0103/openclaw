@@ -26,7 +26,7 @@ export function modelCatalogEventInvalidation(
   event: Pick<GatewayEventFrame, "event" | "payload">,
 ): ModelCatalogInvalidation | undefined {
   if (event.event === "config.changed") {
-    return "clear";
+    return "refresh";
   }
   if (event.event === "chat.metadata.changed") {
     const payload = asNullableRecord(event.payload);
@@ -306,16 +306,12 @@ export function invalidateModelCatalogCache(
   client: ModelCatalogClient,
   scope?: ModelCatalogInvalidationScope,
   sessionDefaults?: UiSessionDefaultsHost,
-  retainedKeys?: ReadonlySet<string>,
 ): void {
   const cache = modelCatalogCache.get(client);
   if (!cache) {
     return;
   }
   const matches = (readScope: ModelCatalogReadScope | undefined) => {
-    if (readScope && retainedKeys?.has(modelCatalogKey(modelCatalogParams(readScope)))) {
-      return false;
-    }
     if (!scope || !readScope) {
       return true;
     }

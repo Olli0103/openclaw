@@ -384,8 +384,6 @@ it.each(dispatchCases)(
             maybeAnnounceFastModeAutoOff: vi.fn(),
             notifyExecutionPhase: vi.fn(),
             notifyRunProgress: vi.fn(),
-            notifyToolResult: vi.fn(),
-            notifyAgentEvent: vi.fn(),
           },
         },
         preparedRuntime: {
@@ -462,7 +460,9 @@ it.each(dispatchCases)(
           },
           runShellCommand: remoteBridgeCommand,
         };
-        remoteSandbox.fsBridge = createSandboxFsBridge({ sandbox: remoteSandbox });
+        remoteSandbox.fsBridge = createSandboxFsBridge({
+          sandbox: { ...remoteSandbox, backend: remoteSandbox.backend },
+        });
       }
       const remoteImageRead = remoteSandbox?.fsBridge
         ? vi.spyOn(remoteSandbox.fsBridge, "readFile")
@@ -502,6 +502,7 @@ it.each(dispatchCases)(
               sessionPermissionRoot: projection,
               sessionPermissionPolicy: { root: projection, mode: "guarded" },
               sandbox: projectedSandbox,
+              sandboxReport: { mode: "all", sandboxed: true },
               sandboxSessionKey: "global",
               sessionAgentId: agentId,
             })
@@ -585,9 +586,6 @@ it.each(dispatchCases)(
           storePath: undefined,
         });
         expect.soft(runAttempt.mock.calls[0]?.[0].oneShotCliRun).toBe(oneShotCliRun);
-        expect
-          .soft(runAttempt.mock.calls[0]?.[0].runtimePluginToolGrant)
-          .toBe(runtimePluginToolGrant);
         const sandbox = runAttempt.mock.calls[0]?.[0].sandbox;
         if (managedWorkspace && !remoteSkills) {
           expect(preparation).toHaveBeenCalledWith(expect.objectContaining({ admittedRunContext }));

@@ -3,6 +3,7 @@ import { expectDefined } from "openclaw/plugin-sdk/expect-runtime";
 import { formatErrorMessage } from "openclaw/plugin-sdk/security-runtime";
 import type { SsrFPolicy } from "openclaw/plugin-sdk/security-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { raceWithTimeout } from "openclaw/plugin-sdk/time-runtime";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { withManagedProxyForCdpUrl, withNoProxyForCdpUrl } from "./cdp-proxy-bypass.js";
 import {
@@ -12,6 +13,7 @@ import {
   isWebSocketUrl,
   redactCdpErrorText,
   stripCdpUrlCredentials,
+  type CdpEndpointPin,
 } from "./cdp.helpers.js";
 import { getChromeWebSocketEndpoint } from "./chrome.js";
 import { resolveBrowserEngine } from "./engines/registry.js";
@@ -52,12 +54,6 @@ import {
 } from "./pw-session-state.js";
 
 export { pageTargetInfo } from "./pw-session-page-target.js";
-
-type CdpEndpointPin = NonNullable<Awaited<ReturnType<typeof assertCdpEndpointAllowed>>>;
-
-function resolveCdpConnectRetryDelayMs(attempt: number): number {
-  return 250 + attempt * 250;
-}
 
 export function hasCachedPlaywrightBrowserConnection(cdpUrl: string): boolean {
   return cachedByCdpUrl.has(normalizeCdpUrl(cdpUrl));
@@ -175,7 +171,7 @@ function takeCachedPlaywrightBrowserConnection(cdpUrl: string): ConnectedBrowser
   if (!cur) {
     return null;
   }
-  if (cur.onDisconnected && typeof cur.browser.off === "function") {
+  if (cur.onDisconnected) {
     cur.browser.off("disconnected", cur.onDisconnected);
   }
   return cur;
@@ -223,23 +219,14 @@ async function closeTrackedPlaywrightConnection(connection: ConnectedBrowser): P
 }
 
 async function withPlaywrightCloseTimeout(task: Promise<void>): Promise<void> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    await Promise.race([
-      task,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error("Playwright adapter disconnect timed out.")),
-          PLAYWRIGHT_CONNECTION_CLOSE_TIMEOUT_MS,
-        );
-        timer.unref?.();
-      }),
-    ]);
-  } finally {
-    if (timer) {
-      clearTimeout(timer);
-    }
-  }
+  await raceWithTimeout(
+    task,
+    PLAYWRIGHT_CONNECTION_CLOSE_TIMEOUT_MS,
+    () => {
+      throw new Error("Playwright adapter disconnect timed out.");
+    },
+    { ref: false },
+  );
 }
 
 /** Capture and retire only the adapter handles currently owned by one lifecycle transition. */
@@ -326,11 +313,6 @@ export function retirePlaywrightBrowserConnectionExact(opts: {
       );
     },
   };
-}
-
-/** Retire a scoped adapter immediately; its CDP disconnect may settle later. */
-export function retirePlaywrightBrowserConnection(opts: { cdpUrl: string }): boolean {
-  return retirePlaywrightBrowserConnectionExact(opts).retired;
 }
 
 export function evictStalePlaywrightBrowserConnection(
@@ -549,9 +531,8 @@ export async function connectBrowser(
         if (errMsg.includes("rate limit")) {
           break;
         }
-        const delay = resolveCdpConnectRetryDelayMs(attempt);
         await new Promise((r) => {
-          setTimeout(r, delay);
+          setTimeout(r, 250 + attempt * 250);
         });
       }
     }
@@ -572,9 +553,7 @@ export async function connectBrowser(
 }
 
 export async function getAllPages(browser: Browser): Promise<Page[]> {
-  const contexts = browser.contexts();
-  const pages = contexts.flatMap((c) => c.pages());
-  return pages;
+  return browser.contexts().flatMap((context) => context.pages());
 }
 
 async function partitionAccessiblePages(opts: { cdpUrl: string; pages: Page[] }): Promise<{

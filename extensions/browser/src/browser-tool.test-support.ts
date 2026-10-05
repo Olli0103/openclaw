@@ -251,9 +251,7 @@ vi.mock("openclaw/plugin-sdk/media-runtime", async (importOriginal) => ({
   saveMediaBuffer: toolCommonMocks.saveMediaBuffer,
 }));
 
-vi.mock("./browser-tool.runtime.js", async () => {
-  const { BrowserToolOutputSchema, createBrowserToolSchema, resolveBrowserToolCapabilities } =
-    await vi.importActual<typeof import("./browser-tool.schema.js")>("./browser-tool.schema.js");
+vi.mock("./browser-tool.runtime.js", async (importOriginal) => {
   const actualClient =
     await vi.importActual<typeof import("./browser/client.js")>("./browser/client.js");
   const actualActions = await vi.importActual<typeof import("./browser/client-actions.js")>(
@@ -297,11 +295,9 @@ vi.mock("./browser-tool.runtime.js", async () => {
   };
 
   return {
+    ...(await importOriginal<typeof import("./browser-tool.runtime.js")>()),
     DEFAULT_AI_SNAPSHOT_MAX_CHARS: 40_000,
     DEFAULT_UPLOAD_DIR: "/tmp/openclaw-browser-uploads",
-    BrowserToolOutputSchema,
-    createBrowserToolSchema,
-    resolveBrowserToolCapabilities,
     ...routedClients,
     ...browserConfigMocks,
     ...configMocks,
@@ -328,8 +324,6 @@ vi.mock("./browser-tool.runtime.js", async () => {
         supportsEmulation: !existingSession,
       };
     },
-    describeImageFile: toolCommonMocks.describeImageFile,
-    saveMediaBuffer: toolCommonMocks.saveMediaBuffer,
     stageBrowserScreenshotForSharing: toolCommonMocks.stageBrowserScreenshotForSharing,
     imageResultFromFile: toolCommonMocks.imageResultFromFile,
     jsonResult: (result: unknown) => ({

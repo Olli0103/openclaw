@@ -5,6 +5,7 @@ import { recordChannelActivity } from "openclaw/plugin-sdk/channel-activity-runt
 import { createChannelPartialDeliveryError } from "openclaw/plugin-sdk/channel-inbound";
 import { pruneMapToMaxSize } from "openclaw/plugin-sdk/collection-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
+import { captureEffectAuthority } from "openclaw/plugin-sdk/fetch-runtime";
 import { requireRuntimeConfig } from "openclaw/plugin-sdk/plugin-config-runtime";
 import {
   readProviderJsonResponse,
@@ -112,12 +113,19 @@ interface LineSendOpts {
   quoteToken?: string;
   /** Revalidate immediately before every provider attempt, including retries. */
   authorize?: () => boolean | Promise<boolean>;
+  assertDirectAdapterHandoff?: () => void;
 }
 
 type LineClientOpts = Pick<LineSendOpts, "cfg" | "channelAccessToken" | "accountId">;
 type LinePushOpts = Pick<
   LineSendOpts,
-  "cfg" | "channelAccessToken" | "accountId" | "verbose" | "quoteToken" | "authorize"
+  | "cfg"
+  | "channelAccessToken"
+  | "accountId"
+  | "verbose"
+  | "quoteToken"
+  | "authorize"
+  | "assertDirectAdapterHandoff"
 >;
 
 interface LinePushBehavior {
@@ -190,30 +198,6 @@ function resolveLineMessagingAccount(opts: LineClientOpts): {
   return { account, token };
 }
 
-function createLineMessagingClient(opts: LineClientOpts): {
-  account: ReturnType<typeof resolveLineAccount>;
-  client: messagingApi.MessagingApiClient;
-} {
-  const { account, token } = resolveLineMessagingAccount(opts);
-  return {
-    account,
-    client: new messagingApi.MessagingApiClient({ channelAccessToken: token }),
-  };
-}
-
-function createLinePushContext(
-  to: string,
-  opts: LineClientOpts,
-): {
-  account: ReturnType<typeof resolveLineAccount>;
-  token: string;
-  chatId: string;
-} {
-  const { account, token } = resolveLineMessagingAccount(opts);
-  const chatId = normalizeTarget(to);
-  return { account, token, chatId };
-}
-
 type LineProviderRequest = messagingApi.PushMessageRequest | messagingApi.ReplyMessageRequest;
 type LineProviderResponse = messagingApi.PushMessageResponse | messagingApi.ReplyMessageResponse;
 
@@ -223,9 +207,17 @@ async function sendLineProviderMessages(
   request: LineProviderRequest,
   retryKey?: string,
   authorize?: LineSendOpts["authorize"],
+  assertDirectAdapterHandoff?: () => void,
 ): Promise<LineProviderResponse> {
   try {
-    return await postLineProviderMessages(operation, token, request, retryKey, authorize);
+    return await postLineProviderMessages(
+      operation,
+      token,
+      request,
+      retryKey,
+      authorize,
+      assertDirectAdapterHandoff,
+    );
   } catch (error) {
     // LINE refuses the whole request for a quote token it no longer accepts and
     // names no field in the answer, so a quoted reply would simply disappear.
@@ -244,6 +236,7 @@ async function sendLineProviderMessages(
       { ...request, messages: unquoted },
       retryKey,
       authorize,
+      assertDirectAdapterHandoff,
     );
   }
 }
@@ -254,7 +247,9 @@ async function postLineProviderMessages(
   request: LineProviderRequest,
   retryKey?: string,
   authorize?: LineSendOpts["authorize"],
+  assertDirectAdapterHandoff?: () => void,
 ): Promise<LineProviderResponse> {
+  const effect = captureEffectAuthority();
   const requestBody = JSON.stringify(request);
   if (authorize) {
     const authorized = authorize();
@@ -263,19 +258,22 @@ async function postLineProviderMessages(
       throw new Error("LINE send authorization denied");
     }
   }
-  const response = await fetchWithRuntimeDispatcherOrMockedGlobal(
-    `https://api.line.me/v2/bot/message/${operation}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        "User-Agent": `@line/bot-sdk/${lineBotSdkPackage.version}`,
-        ...(retryKey ? { "X-Line-Retry-Key": retryKey } : {}),
+  const response = await effect.initiate(() => {
+    assertDirectAdapterHandoff?.();
+    return fetchWithRuntimeDispatcherOrMockedGlobal(
+      `https://api.line.me/v2/bot/message/${operation}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          "User-Agent": `@line/bot-sdk/${lineBotSdkPackage.version}`,
+          ...(retryKey ? { "X-Line-Retry-Key": retryKey } : {}),
+        },
+        body: requestBody,
       },
-      body: requestBody,
-    },
-  );
+    );
+  });
 
   // LINE answers a retried key with 409 and the accepted request's sent messages
   // instead of delivering the batch a second time, so that conflict is the
@@ -304,10 +302,6 @@ async function postLineProviderMessages(
     // LINE accepted this exact request before its receipt became unreadable; retrying duplicates it.
     throw createChannelPartialDeliveryError(error, { messageIds: [], visibleReplySent: true });
   }
-}
-
-function createTextMessage(text: string): TextMessage {
-  return { type: "text", text };
 }
 
 function isValidLineLocation(location: LineLocation): boolean {
@@ -409,7 +403,8 @@ async function pushLineMessages(
     throw new Error("Message must be non-empty for LINE sends");
   }
 
-  const { account, token, chatId } = createLinePushContext(to, opts);
+  const { account, token } = resolveLineMessagingAccount(opts);
+  const chatId = normalizeTarget(to);
   const normalizedMessages = applyLineQuoteToken(messages, opts.quoteToken).map(
     normalizeLineMessage,
   );
@@ -425,6 +420,7 @@ async function pushLineMessages(
         { to: chatId, messages: normalizedMessages },
         retryKey,
         opts.authorize,
+        opts.assertDirectAdapterHandoff,
       );
     } catch (err) {
       if (behavior.errorContext) {
@@ -474,6 +470,7 @@ async function replyLineMessages(
     { replyToken, messages: normalizedMessages },
     undefined,
     opts.authorize,
+    opts.assertDirectAdapterHandoff,
   );
   const result = resolveLineProviderMessageIds(response, "reply");
   return { ...result, accountId: account.accountId };
@@ -504,7 +501,7 @@ export async function sendMessageLine(
   }
 
   if (text?.trim()) {
-    messages.push(createTextMessage(text.trim()));
+    messages.push({ type: "text", text: text.trim() });
   }
 
   if (messages.length === 0) {
@@ -581,22 +578,6 @@ export function createFlexMessage(
   };
 }
 
-export async function pushImageMessage(
-  to: string,
-  originalContentUrl: string,
-  previewImageUrl: string | undefined,
-  opts: LinePushOpts,
-): Promise<LineSendResult> {
-  const message = await buildLineMediaMessage(
-    originalContentUrl,
-    { mediaKind: "image", previewImageUrl },
-    to,
-  );
-  return pushLineMessages(to, [message], opts, {
-    verboseMessage: (chatId) => `line: pushed image to ${chatId}`,
-  });
-}
-
 export async function pushLocationMessage(
   to: string,
   location: LineLocation,
@@ -635,11 +616,12 @@ export async function pushTextMessageWithQuickReplies(
   quickReplyLabels: string[],
   opts: LinePushOpts,
 ): Promise<LineSendResult> {
-  const message = createTextMessageWithQuickReplies(text, quickReplyLabels);
-
-  return pushLineMessages(to, [message], opts, {
-    verboseMessage: (chatId) => `line: pushed message with quick replies to ${chatId}`,
-  });
+  return pushLineMessages(
+    to,
+    [{ type: "text", text, quickReply: createQuickReplyItems(quickReplyLabels) }],
+    opts,
+    { verboseMessage: (chatId) => `line: pushed message with quick replies to ${chatId}` },
+  );
 }
 
 export function createQuickReplyItems(labels: string[]): QuickReply {
@@ -650,22 +632,12 @@ export function createQuickReplyItems(labels: string[]): QuickReply {
   return { items };
 }
 
-export function createTextMessageWithQuickReplies(
-  text: string,
-  quickReplyLabels: string[],
-): TextMessage & { quickReply: QuickReply } {
-  return {
-    type: "text",
-    text,
-    quickReply: createQuickReplyItems(quickReplyLabels),
-  };
-}
-
 export async function showLoadingAnimation(
   chatId: string,
   opts: LineClientOpts & { loadingSeconds?: number },
 ): Promise<void> {
-  const { client } = createLineMessagingClient(opts);
+  const { token } = resolveLineMessagingAccount(opts);
+  const client = new messagingApi.MessagingApiClient({ channelAccessToken: token });
 
   try {
     await client.showLoadingAnimation({
@@ -713,9 +685,8 @@ function fetchLineMemberProfile(
 
 export async function getUserProfile(
   userId: string,
-  opts: LineClientOpts & { useCache?: boolean } & LineConversationScope,
+  opts: LineClientOpts & LineConversationScope,
 ): Promise<LineUserProfile | null> {
-  const useCache = opts.useCache ?? true;
   try {
     // Client construction resolves the canonical account for the cache key and
     // can throw; an unresolvable name must never cost the inbound turn.
@@ -731,11 +702,6 @@ export async function getUserProfile(
         return null;
       }
     };
-    if (!useCache) {
-      const profile = await load();
-      rememberLineIdentity(profileCache, cacheKey, profile);
-      return profile;
-    }
     return await loadLineIdentity(profileCache, cacheKey, load);
   } catch (err) {
     logVerbose(`line: failed to fetch profile for ${userId}: ${String(err)}`);

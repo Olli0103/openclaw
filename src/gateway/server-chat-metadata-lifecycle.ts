@@ -1,10 +1,13 @@
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { onSessionCostUsageUpdated } from "../infra/session-cost-usage-events.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
+import { isSessionStoreTopologyChange, sessionChanges } from "../sessions/session-row-changes.js";
 import type { SessionCostUsagePublication } from "../shared/usage-types.js";
+import { modelSelectionPoliciesMatch } from "./operator-model-presentation.js";
 import { onOperatorRolePolicyChanged } from "./operator-role-policy.js";
 import type { GatewayRequestContext } from "./server-methods/types.js";
 import type { GatewaySidecarStopOwner } from "./server-sidecar-owners.js";
+import { invalidateSharedReadResponses } from "./shared-read-responses.js";
 
 type GatewayLogger = ReturnType<typeof createSubsystemLogger>;
 
@@ -47,9 +50,33 @@ export async function createGatewayChatMetadataLifecycle(params: {
     ...(params.minimalTestGateway
       ? {
           beforeRefresh: async () => {
+            const [
+              { listAgentIds },
+              { getPreparedModelCatalogOwnerSnapshot },
+              { readAgentDatabaseAdmissionRefusal },
+            ] = await Promise.all([
+              import("../agents/agent-scope.js"),
+              import("../agents/prepared-model-catalog.js"),
+              import("../state/agent-database-admission.js"),
+            ]);
+            const config = params.getConfig();
+            // Catalog and skill publications can change metadata while its model owner stays current.
+            if (
+              listAgentIds(config).every(
+                (agentId) =>
+                  readAgentDatabaseAdmissionRefusal(agentId) ||
+                  getPreparedModelCatalogOwnerSnapshot({
+                    agentId,
+                    config,
+                    allowGatewaySubagentBinding: true,
+                  })?.isCurrent(),
+              )
+            ) {
+              return;
+            }
             const { refreshPreparedModelRuntimeSnapshots } =
               await import("../agents/prepared-model-runtime.js");
-            await refreshPreparedModelRuntimeSnapshots(params.getConfig(), {
+            await refreshPreparedModelRuntimeSnapshots(config, {
               gatewayLifecycle: true,
               catalogMode: "static",
               allowGatewaySubagentBinding: true,
@@ -71,6 +98,9 @@ export async function createGatewayChatMetadataLifecycle(params: {
     });
   };
   const refreshForSubordinateChange = (notifyIfUnchanged = false) => {
+    if (context) {
+      invalidateSharedReadResponses(context.broadcast, "chat.metadata.changed");
+    }
     // Auth and skill facts are subordinate to the prepared model owner. During replacement the
     // publication event owns the one catch-up refresh after every related fact is committed.
     if (preparedModelRuntimeState === "available") {
@@ -94,18 +124,25 @@ export async function createGatewayChatMetadataLifecycle(params: {
     ]);
     const unregisterPreparedModelRuntimePublication =
       registerPreparedModelRuntimePublicationListener((event) => {
-        if (event.phase === "catalog-published" || event.phase === "catalog-failed") {
-          if (
-            event.phase === "catalog-published" &&
+        if (
+          event.phase === "catalog-status" ||
+          (event.phase === "catalog-published" &&
             event.modelFactsChanged === false &&
-            !event.refreshStatusChanged
-          ) {
-            return;
+            !event.refreshStatusChanged)
+        ) {
+          if (context) {
+            invalidateSharedReadResponses(context.broadcast, "chat.metadata.changed");
           }
+          return;
+        }
+        if (event.phase === "catalog-published" || event.phase === "catalog-failed") {
           refreshForSubordinateChange(
             event.phase === "catalog-published" && event.refreshStatusChanged === true,
           );
           return;
+        }
+        if (context) {
+          invalidateSharedReadResponses(context.broadcast, "chat.metadata.changed");
         }
         preparedModelRuntimeEventVersion += 1;
         if (event.phase === "invalidated") {
@@ -134,7 +171,13 @@ export async function createGatewayChatMetadataLifecycle(params: {
       registerRuntimeAuthProfileStoreMutationListener(() => {
         refreshForSubordinateChange();
       });
+    const unregisterTopology = sessionChanges.subscribe((change) => {
+      if (isSessionStoreTopologyChange(change)) {
+        refreshForSubordinateChange();
+      }
+    });
     return () => {
+      unregisterTopology();
       unregisterRuntimeAuthProfileStoreMutation();
       unregisterPreparedModelRuntimePublication();
       unregisterSkillsChange();
@@ -147,6 +190,7 @@ export async function createGatewayChatMetadataLifecycle(params: {
       publishSidecars: GatewaySidecarStopOwner["publish"],
     ) => {
       context = next;
+      let selectionConfig = next.getCommittedRuntimeConfig?.() ?? params.getConfig();
       const unregister = await registerRefreshListeners();
       const unregisterUsage = onSessionCostUsageUpdated((publication) => {
         broadcastChatMetadataChanged(next, {
@@ -157,8 +201,12 @@ export async function createGatewayChatMetadataLifecycle(params: {
       });
       const unregisterRolePolicy = onOperatorRolePolicyChanged((change) => {
         if (change.kind === "config" && change.context === next && context === next) {
-          // Retire choices at committed config publication, before replacement catalogs can yield.
-          broadcastChatMetadataChanged(next, { modelSelectionChanged: true });
+          const config = next.getCommittedRuntimeConfig?.() ?? params.getConfig();
+          const unchanged = modelSelectionPoliciesMatch(selectionConfig, config);
+          selectionConfig = config;
+          if (!unchanged) {
+            broadcastChatMetadataChanged(next, { modelSelectionChanged: true });
+          }
         }
       });
       // Minimal Gateways still own read-triggered preparation. Every lifetime
@@ -198,6 +246,7 @@ export async function createGatewayChatMetadataLifecycle(params: {
       }
     },
     read: runtime.read,
+    readModelsList: runtime.readModelsList,
     readStartup: runtime.readStartup,
     refresh: runtime.refresh,
   };

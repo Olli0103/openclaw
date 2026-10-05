@@ -70,10 +70,8 @@ type SetupMigrationStagePaths = {
 
 type SetupMigrationStage = {
   staged: SetupMigrationStagePaths;
-  final: SetupMigrationStagePaths;
   configRuntime: MigrationConfigRuntime;
   inferenceConfigTarget: SetupInferenceConfigTarget;
-  getFinalConfig: () => OpenClawConfig;
   getStagedConfig: () => OpenClawConfig;
   replaceStagedConfig: (config: OpenClawConfig) => void;
   projectPlanToStage: (plan: MigrationPlan) => MigrationPlan;
@@ -104,19 +102,11 @@ async function makePrivateStageNear(target: string, label: string): Promise<stri
   return staged;
 }
 
-function replacePathPrefix(value: string, from: string, to: string): string {
-  if (value === from) {
-    return to;
-  }
-  const prefix = `${from}${path.sep}`;
-  return value.startsWith(prefix) ? `${to}${value.slice(from.length)}` : value;
-}
-
 function projectPath(value: string, mappings: ReadonlyArray<readonly [string, string]>): string {
   const mapping = mappings
     .filter(([from]) => value === from || value.startsWith(`${from}${path.sep}`))
     .toSorted(([left], [right]) => right.length - left.length)[0];
-  return mapping ? replacePathPrefix(value, mapping[0], mapping[1]) : value;
+  return mapping ? `${mapping[1]}${value.slice(mapping[0].length)}` : value;
 }
 
 function projectValue(value: unknown, mappings: ReadonlyArray<readonly [string, string]>): unknown {
@@ -140,10 +130,10 @@ function projectPlanTargets(
 ): MigrationPlan {
   return {
     ...plan,
-    ...(plan.target ? { target: projectValue(plan.target, mappings) as string } : {}),
+    ...(plan.target ? { target: projectPath(plan.target, mappings) } : {}),
     items: plan.items.map((item) => ({
       ...item,
-      ...(item.target ? { target: projectValue(item.target, mappings) as string } : {}),
+      ...(item.target ? { target: projectPath(item.target, mappings) } : {}),
     })),
     ...(plan.metadata
       ? { metadata: projectValue(plan.metadata, mappings) as Record<string, unknown> }
@@ -151,55 +141,7 @@ function projectPlanTargets(
   };
 }
 
-function createInMemoryConfigRuntime(params: {
-  finalConfig: OpenClawConfig;
-  stagedConfig: OpenClawConfig;
-  projectToFinal: (config: OpenClawConfig) => OpenClawConfig;
-}): {
-  runtime: MigrationConfigRuntime;
-  getFinalConfig: () => OpenClawConfig;
-  getStagedConfig: () => OpenClawConfig;
-  replaceConfigs: (next: { finalConfig: OpenClawConfig; stagedConfig: OpenClawConfig }) => void;
-} {
-  let finalConfig = structuredClone(params.finalConfig);
-  let stagedConfig = structuredClone(params.stagedConfig);
-  const mutateConfigFile = async (
-    mutation: Parameters<MigrationConfigRuntime["mutateConfigFile"]>[0],
-  ) => {
-    const stagedDraft = structuredClone(stagedConfig);
-    const context = { snapshot: {} as never, previousHash: null };
-    const result = await mutation.mutate(stagedDraft, context);
-    // Provider mutations may carry state or generate values. Execute them once,
-    // then project the staged result into the publishable config.
-    stagedConfig = stagedDraft;
-    finalConfig = params.projectToFinal(stagedDraft);
-    return {
-      nextConfig: stagedConfig,
-      result,
-      path: "<onboarding-migration-stage>",
-      previousHash: null,
-      snapshot: {} as never,
-      persistedHash: null,
-      afterWrite: mutation.afterWrite,
-      followUp: { mode: "none", reason: "staged migration config", requiresRestart: false },
-    };
-  };
-  const runtime: MigrationConfigRuntime = {
-    current: () => stagedConfig,
-    mutateConfigFile: mutateConfigFile as MigrationConfigRuntime["mutateConfigFile"],
-  };
-  return {
-    runtime,
-    getFinalConfig: () => structuredClone(finalConfig),
-    getStagedConfig: () => structuredClone(stagedConfig),
-    replaceConfigs(next) {
-      finalConfig = structuredClone(next.finalConfig);
-      stagedConfig = structuredClone(next.stagedConfig);
-    },
-  };
-}
-
-function phasePlan(
+export function buildSetupMigrationPhasePlan(
   plan: MigrationPlan,
   phase: "before-promotion" | "after-promotion",
 ): MigrationPlan {
@@ -211,13 +153,6 @@ function phasePlan(
     return { ...item, status: "skipped" as const, reason: DEFERRED_REASON };
   });
   return { ...plan, items, summary: summarizeMigrationItems(items) };
-}
-
-export function buildSetupMigrationPhasePlan(
-  plan: MigrationPlan,
-  phase: "before-promotion" | "after-promotion",
-): MigrationPlan {
-  return phasePlan(plan, phase);
 }
 
 function takeMatchingItem(items: MigrationItem[], item: MigrationItem): MigrationItem | undefined {
@@ -308,38 +243,63 @@ export async function createSetupMigrationStage(params: {
   const toFinal = toStage.map(([finalPath, stagedPath]) => [stagedPath, finalPath] as const);
   const projectConfigToFinal = (config: OpenClawConfig) =>
     projectValue(config, toFinal) as OpenClawConfig;
-  const configs = createInMemoryConfigRuntime({
-    finalConfig: params.targetConfig,
-    stagedConfig,
-    projectToFinal: projectConfigToFinal,
-  });
-  const replaceStagedConfig = (config: OpenClawConfig) =>
-    configs.replaceConfigs({ stagedConfig: config, finalConfig: projectConfigToFinal(config) });
+  let finalConfig = structuredClone(params.targetConfig);
+  let currentStagedConfig = structuredClone(stagedConfig);
+  const getStagedConfig = () => structuredClone(currentStagedConfig);
+  const replaceStagedConfig = (config: OpenClawConfig) => {
+    finalConfig = structuredClone(projectConfigToFinal(config));
+    currentStagedConfig = structuredClone(config);
+  };
+  const mutateConfigFile = async (
+    mutation: Parameters<MigrationConfigRuntime["mutateConfigFile"]>[0],
+  ) => {
+    const stagedDraft = getStagedConfig();
+    const context = { snapshot: {} as never, previousHash: null };
+    const result = await mutation.mutate(stagedDraft, context);
+    // Provider mutations may carry state or generate values. Execute them once,
+    // then project the staged result into the publishable config.
+    currentStagedConfig = stagedDraft;
+    finalConfig = projectConfigToFinal(stagedDraft);
+    return {
+      nextConfig: currentStagedConfig,
+      result,
+      path: "<onboarding-migration-stage>",
+      previousHash: null,
+      snapshot: {} as never,
+      persistedHash: null,
+      afterWrite: mutation.afterWrite,
+      followUp: { mode: "none", reason: "staged migration config", requiresRestart: false },
+    };
+  };
+  const configRuntime: MigrationConfigRuntime = {
+    current: () => currentStagedConfig,
+    mutateConfigFile: mutateConfigFile as MigrationConfigRuntime["mutateConfigFile"],
+  };
   const writeInferenceConfig = async (
     config: OpenClawConfig,
     options: SetupInferenceConfigWriteOptions,
     expected?: OpenClawConfig,
   ) => {
-    const before = configs.getStagedConfig();
+    const before = getStagedConfig();
     if (expected && !isDeepStrictEqual(before, expected)) {
       throw new SetupMigrationTargetChangedError(
         "Staged connection settings changed before activation.",
       );
     }
     options.captureUndo(async () => {
-      const restored = restoreSetupInferenceConfig(configs.getStagedConfig(), before, config);
+      const restored = restoreSetupInferenceConfig(getStagedConfig(), before, config);
       if (restored.written) {
         replaceStagedConfig(restored.config);
       }
       return restored;
     });
     replaceStagedConfig(config);
-    return configs.getStagedConfig();
+    return getStagedConfig();
   };
   const inferenceConfigTarget: SetupInferenceConfigTarget = {
     write: writeInferenceConfig,
     read: async () => {
-      const config = configs.getStagedConfig();
+      const config = getStagedConfig();
       return { config, write: (next, options) => writeInferenceConfig(next, options, config) };
     },
   };
@@ -361,11 +321,9 @@ export async function createSetupMigrationStage(params: {
 
   return {
     staged: stagedPaths,
-    final: finalPaths,
-    configRuntime: configs.runtime,
+    configRuntime,
     inferenceConfigTarget,
-    getFinalConfig: configs.getFinalConfig,
-    getStagedConfig: configs.getStagedConfig,
+    getStagedConfig,
     replaceStagedConfig,
     projectPlanToStage: (plan) => projectPlanTargets(plan, toStage),
     projectResultToFinal: (result) => projectValue(result, toFinal) as MigrationApplyResult,
@@ -387,7 +345,7 @@ export async function createSetupMigrationStage(params: {
           "Migration config changed before promotion. Review it and retry.",
         );
       }
-      const configTarget = configs.getFinalConfig();
+      const configTarget = structuredClone(finalConfig);
       // Shared state is owned by the live runtime. Promote durable import artifacts,
       // then merge the derived agent registry fact instead of replacing its database.
       const components: PromotionComponent[] = [

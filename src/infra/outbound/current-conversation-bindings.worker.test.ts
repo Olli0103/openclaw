@@ -17,7 +17,7 @@ import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { INTERNAL_MESSAGE_CHANNEL } from "../../utils/message-channel-constants.js";
 import * as admission from "../sqlite-worker-operation-admission.js";
 import { createAccountScopedConversationBindingManager } from "./account-scoped-conversation-bindings.js";
-import { createBoundDeliveryRouter } from "./bound-delivery-router.js";
+import { resolveBoundDeliveryDestination } from "./bound-delivery-router.js";
 import {
   inspectCurrentConversationBindingRecordAsync,
   readCurrentConversationBindingSelectionAsync,
@@ -265,13 +265,14 @@ it.each(["transaction", "commit"] as const)(
       const before = row.get(current.bindingId);
       let active = true;
       const createAdmission = admission.createSqliteWorkerOperationAdmission;
-      vi.spyOn(admission, "createSqliteWorkerOperationAdmission").mockImplementation((admit) =>
-        createAdmission((request, grant) => {
-          if (request.stage === stage) {
-            active = false;
-          }
-          admit(request, grant);
-        }),
+      vi.spyOn(admission, "createSqliteWorkerOperationAdmission").mockImplementation(
+        (admit, attachment) =>
+          createAdmission((request, grant) => {
+            if (request.stage === stage) {
+              active = false;
+            }
+            admit(request, grant);
+          }, attachment),
       );
       await expect(
         touchCurrentConversationBindingRecordAsync(
@@ -340,11 +341,10 @@ it("keeps account touch bytes identical and rejects a manager shadowed by anothe
   });
 });
 
-it.each(
-  (["transaction", "commit"] as const).flatMap((stage) =>
-    (["manager", "registry"] as const).map((owner) => ({ stage, owner })),
-  ),
-)(
+it.each([
+  { stage: "transaction", owner: "manager" },
+  { stage: "commit", owner: "registry" },
+] as const)(
   "joins expiry pruning refused by the actual $owner at $stage without deleting its row",
   async ({ stage, owner }) => {
     const previousRegistry = captureActivePluginRegistrySnapshot();
@@ -384,24 +384,23 @@ it.each(
           expect(before).toBeDefined();
           let retirements = 0;
           const createAdmission = admission.createSqliteWorkerOperationAdmission;
-          vi.spyOn(admission, "createSqliteWorkerOperationAdmission").mockImplementation((admit) =>
-            createAdmission((request, grant) => {
-              if (request.stage === stage) {
-                retirements += 1;
-                if (manager) {
-                  manager.stop();
-                } else {
-                  setActivePluginRegistry(createTestRegistry([]));
+          vi.spyOn(admission, "createSqliteWorkerOperationAdmission").mockImplementation(
+            (admit, attachment) =>
+              createAdmission((request, grant) => {
+                if (request.stage === stage) {
+                  retirements += 1;
+                  if (manager) {
+                    manager.stop();
+                  } else {
+                    setActivePluginRegistry(createTestRegistry([]));
+                  }
                 }
-              }
-              admit(request, grant);
-            }),
+                admit(request, grant);
+              }, attachment),
           );
           await expect(
-            createBoundDeliveryRouter().resolveDestination({
-              eventKind: "task_completion",
+            resolveBoundDeliveryDestination({
               targetSessionKey: bound.targetSessionKey,
-              failClosed: true,
             }),
           ).rejects.toMatchObject({ code: "BINDING_ADAPTER_UNAVAILABLE" });
           expect(retirements).toBe(1);

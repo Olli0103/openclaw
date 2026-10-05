@@ -1,5 +1,5 @@
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
-import type { GatewaySessionRow, ModelCatalogResult } from "../../api/types.ts";
+import type { ModelCatalogResult } from "../../api/types.ts";
 import type {
   ChatMetadataResult,
   ChatMetadataRefresh,
@@ -200,15 +200,7 @@ function bindChatMetadata(host: ChatPageHost): ChatMetadataBinding | undefined {
         }
         if (update.type !== "loading") {
           if (update.type === "result") {
-            applyRemoteSlashCommandsResult({
-              client,
-              agentId: scope.agentId,
-              result: update.result,
-            });
-            if (update.catalogChanged) {
-              binding.sessionFactsInvalidated = true;
-              void refreshChatMetadata(host, { automatic: true });
-            }
+            applyRemoteSlashCommandsResult(update.result);
           }
           if (binding.sessionFactsRetryPending) {
             binding.sessionFactsRetryPending = false;
@@ -224,7 +216,7 @@ function bindChatMetadata(host: ChatPageHost): ChatMetadataBinding | undefined {
   host.chatModelCatalogInitialized = hasUnrestrictedModelCatalogSnapshot(client);
   const cached = peekChatMetadata(client, scope);
   if (cached) {
-    applyRemoteSlashCommandsResult({ client, agentId: scope.agentId, result: cached });
+    applyRemoteSlashCommandsResult(cached);
   }
   return binding;
 }
@@ -346,11 +338,8 @@ function refreshChatSessionFacts(host: ChatPageHost, binding: ChatMetadataBindin
   );
   const reconcile = observation.captureReconcile();
   binding.sessionFactsInvalidated = false;
-  const promise = binding.client
-    .request<{ session?: GatewaySessionRow | null }>("sessions.describe", {
-      key: binding.scope.sessionKey,
-      agentId,
-    })
+  const promise = binding.sessions
+    .describe({ key: binding.scope.sessionKey, agentId }, { client: binding.client, refresh: true })
     .then((result) => {
       if (!binding.isCurrent() || binding.version !== version) {
         return;
@@ -387,7 +376,7 @@ function refreshChatSessionFacts(host: ChatPageHost, binding: ChatMetadataBindin
   return promise;
 }
 
-export async function refreshChatModelAuthStatus(host: ChatPageHost, opts?: { refresh?: boolean }) {
+export async function refreshChatModelAuthStatus(host: ChatPageHost) {
   if (!host.client || !host.connected) {
     return;
   }
@@ -402,10 +391,7 @@ export async function refreshChatModelAuthStatus(host: ChatPageHost, opts?: { re
     host.modelAuthStatusRequestVersion === requestVersion &&
     resolveChatAgentId(host) === agentId;
   try {
-    const result = await loadModelAuthStatus(client, {
-      ...opts,
-      agentId,
-    });
+    const result = await loadModelAuthStatus(client, { agentId });
     if (!ownsRequest()) {
       return;
     }

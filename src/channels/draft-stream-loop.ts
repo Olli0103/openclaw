@@ -1,8 +1,3 @@
-/**
- * Throttled draft stream loop.
- *
- * Sends the latest pending draft text with single-flight edit semantics.
- */
 import { resolveTimerTimeoutMs } from "@openclaw/normalization-core/number-coercion";
 
 /** Throttled draft-stream sender used by channels that edit in-progress replies. */
@@ -21,7 +16,6 @@ type CreatedDraftStreamLoop<T> = DraftStreamLoop<T> & {
   takePending: () => T;
 };
 
-/** Creates a single-flight draft stream loop that preserves the newest pending value. */
 export function createDraftStreamLoop<T = string>(params: {
   throttleMs: number;
   /** Keep background updates arriving during a send in the next throttle window. */
@@ -47,10 +41,8 @@ export function createDraftStreamLoop<T = string>(params: {
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const clearTimer = () => {
-    if (timer) {
-      clearTimeout(timer);
-      timer = undefined;
-    }
+    clearTimeout(timer);
+    timer = undefined;
   };
 
   const retainUnsentValue = (value: T, background: boolean) => {

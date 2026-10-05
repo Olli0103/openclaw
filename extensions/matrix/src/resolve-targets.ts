@@ -4,20 +4,15 @@ import type {
   ChannelResolveResult,
 } from "openclaw/plugin-sdk/channel-contract";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime";
-// Matrix plugin module implements resolve targets behavior.
 import { normalizeOptionalLowercaseString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { listMatrixDirectoryGroupsLive, listMatrixDirectoryPeersLive } from "./directory-live.js";
 import { isMatrixQualifiedUserId, normalizeMatrixMessagingTarget } from "./matrix/target-ids.js";
-
-function normalizeLookupQuery(query: string): string {
-  return normalizeOptionalLowercaseString(query) ?? "";
-}
 
 function findExactDirectoryMatches(
   matches: ChannelDirectoryEntry[],
   query: string,
 ): ChannelDirectoryEntry[] {
-  const normalized = normalizeLookupQuery(query);
+  const normalized = normalizeOptionalLowercaseString(query);
   if (!normalized) {
     return [];
   }
@@ -62,7 +57,7 @@ async function readCachedMatches(
   query: string,
   lookup: (query: string) => Promise<ChannelDirectoryEntry[]>,
 ): Promise<ChannelDirectoryEntry[]> {
-  const key = normalizeLookupQuery(query);
+  const key = normalizeOptionalLowercaseString(query);
   if (!key) {
     return [];
   }

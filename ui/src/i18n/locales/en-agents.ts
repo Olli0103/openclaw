@@ -2,10 +2,11 @@
 export const agentChip = {
   menuLabel: "Agent menu",
   agents: "Agents",
+  showAll: "Show all",
+  seeAllAgents: "See all agents",
+  namedSettings: "{name} settings",
+  agentSettings: "Agent settings",
   newConversation: "New conversation",
-  allAgents: "All agents",
-  showAllAgents: "Show all agents",
-  showOneAgent: "Show one agent",
   workspaceMenuLabel: "Workspace menu",
   switchAgent: "Switch agent",
   working: "Working…",
@@ -16,7 +17,6 @@ export const agentChip = {
   getApps: "Get the apps",
   discord: "Discord community",
   viewChangelog: "View changelog",
-  agentSettings: "Agent settings",
 };
 
 export const agentScope = {
@@ -35,6 +35,9 @@ export const identity = {
   name: "Display name",
   namePlaceholder: "Agent name",
   emoji: "Emoji",
+  chooseEmoji: "Choose emoji",
+  searchEmoji: "Search emoji…",
+  noEmojiMatches: "No matching emoji",
   chooseImage: "Choose image…",
   replaceImage: "Replace image…",
   imageUnusable: "That image can't be used. Pick an image file up to 2 MB.",

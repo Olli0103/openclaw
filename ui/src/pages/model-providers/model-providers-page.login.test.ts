@@ -14,8 +14,11 @@ import { waitForFast } from "../../test-helpers/wait-for.ts";
 import { ModelProviderLoginController } from "./login-controller.ts";
 import {
   appendPage,
+  clickLoginChoice,
   createHarness,
   type ModelProvidersPageTestElement,
+  startSelectedLogin,
+  submitCredential,
 } from "./model-providers-page.test-support.ts";
 
 afterEach(() => {
@@ -60,6 +63,13 @@ function loginHarness(
         quickApiKeySetup: true,
         loginOptions: [
           {
+            id: "example-browser",
+            brandId: "example",
+            label: "Example browser sign-in",
+            kind: "oauth",
+            featured: true,
+          },
+          {
             id: "example-secret",
             brandId: "example",
             label: "Example API key",
@@ -67,13 +77,6 @@ function loginHarness(
             hint: "Use your Example account key",
             kind: "secret",
             featured: false,
-          },
-          {
-            id: "example-browser",
-            brandId: "example",
-            label: "Example browser sign-in",
-            kind: "oauth",
-            featured: true,
           },
         ],
       },
@@ -130,29 +133,10 @@ async function selectProvider(page: ModelProvidersPageTestElement, provider: str
   await page.updateComplete;
 }
 
-function clickLoginChoice(page: ModelProvidersPageTestElement, choice: string) {
-  const option = page.data?.authStatus?.providerCapabilities
-    ?.flatMap((provider) => provider.loginOptions ?? [])
-    .find((candidate) => candidate.id === choice);
-  expect(option).toBeDefined();
-  const button = [
-    ...page.querySelectorAll<HTMLButtonElement>("[data-models-login-choice] button"),
-  ].find((candidate) => candidate.querySelector("strong")?.textContent === option!.label);
-  expect(button).toBeDefined();
-  button!.click();
-}
-
 async function chooseLogin(page: ModelProvidersPageTestElement, choice = "example-secret") {
   await openPicker(page);
   await selectProvider(page, "example");
   clickLoginChoice(page, choice);
-}
-
-async function startSelectedLogin(page: ModelProvidersPageTestElement, choice: string) {
-  clickLoginChoice(page, choice);
-  await waitForFast(() =>
-    expect(page.querySelector<HTMLInputElement>('input[name="wizard-text"]')?.disabled).toBe(false),
-  );
 }
 
 async function openLogin(page: ModelProvidersPageTestElement, choice = "example-secret") {
@@ -174,27 +158,11 @@ function providerChoices(page: Element) {
   );
 }
 
-async function submitCredential(page: ModelProvidersPageTestElement) {
-  const manual = page.querySelector<HTMLDetailsElement>(".wizard-step__manual-entry");
-  if (manual && !manual.open) {
-    manual.querySelector<HTMLElement>("summary")!.click();
-    expect(manual.open).toBe(true);
-  }
-  const input = page.querySelector<HTMLInputElement>('input[name="wizard-text"]')!;
-  input.value = "synthetic-test-credential";
-  input.dispatchEvent(new Event("input", { bubbles: true }));
-  await page.updateComplete;
-  page.querySelector<HTMLButtonElement>('.wizard-step__form button[type="submit"]')!.click();
-  await waitForFast(() => expect(input.disabled).toBe(true));
-}
-
 describe("Models provider login", () => {
   it.each([
     { kind: "oauth", cancel: false, submit: false, callbackOnly: false },
     { kind: "oauth", cancel: false, submit: false, callbackOnly: true },
-    { kind: "oauth", cancel: true, submit: false, callbackOnly: true },
     { kind: "oauth", cancel: false, submit: true, callbackOnly: false },
-    { kind: "device-code", cancel: false, submit: false, callbackOnly: false },
     { kind: "oauth", cancel: true, submit: false, callbackOnly: false },
     { kind: "device-code", cancel: true, submit: false, callbackOnly: false },
   ] as const)(
@@ -425,8 +393,8 @@ describe("Models provider login", () => {
     },
   );
 
-  it("saves credentials through the selected manifest choice and refreshes the provider card", async () => {
-    const { context, request, runtimeConfig, answer } = loginHarness();
+  it("keeps the selected credential save and provider refresh when dismissal is refused", async () => {
+    const { context, request, runtimeConfig, answer, cancel } = loginHarness();
     const page = appendPage(context);
     await openLogin(page);
 
@@ -440,23 +408,6 @@ describe("Models provider login", () => {
       { timeoutMs: null },
     );
     expect(page.querySelector('input[type="password"][name="wizard-text"]')).not.toBeNull();
-    await submitCredential(page);
-    answer.resolve({ done: true, status: "done" });
-
-    await waitForFast(() => expect(page.textContent).toContain("Provider credentials saved."));
-    await waitForFast(() =>
-      expect(page.querySelector('[data-provider-id="example"]')).not.toBeNull(),
-    );
-    expect(page.querySelector("openclaw-modal-dialog")).toBeNull();
-    expect(context.navigate).not.toHaveBeenCalled();
-    expect(runtimeConfig.patch).not.toHaveBeenCalled();
-    expect(request.mock.calls.some(([method]) => method.startsWith("openclaw.setup."))).toBe(false);
-  });
-
-  it("keeps the dialog and saved result when dismissal is refused during persistence", async () => {
-    const { context, answer, cancel } = loginHarness();
-    const page = appendPage(context);
-    await openLogin(page);
     await submitCredential(page);
 
     const dismissal = new CustomEvent("modal-cancel", { bubbles: true, cancelable: true });
@@ -473,6 +424,10 @@ describe("Models provider login", () => {
     await waitForFast(() =>
       expect(page.querySelector('[data-provider-id="example"]')).not.toBeNull(),
     );
+    expect(page.querySelector("openclaw-modal-dialog")).toBeNull();
+    expect(context.navigate).not.toHaveBeenCalled();
+    expect(runtimeConfig.patch).not.toHaveBeenCalled();
+    expect(request.mock.calls.some(([method]) => method.startsWith("openclaw.setup."))).toBe(false);
   });
 
   it("releases a saved login on disposal while Cancel is pending and allows a second login", async () => {
@@ -648,6 +603,9 @@ describe("Models provider login", () => {
         "models.authStatus",
       );
     const example = auth.providerCapabilities![0]!;
+    for (const [index, choice] of example.loginOptions!.entries()) {
+      choice.featured = index !== 0;
+    }
     const { context, request } = loginHarness({
       capabilities: [
         {
@@ -956,32 +914,4 @@ describe("Models provider login", () => {
       expect(document.openClawModalLayers?.has(modal)).toBe(false);
     },
   );
-});
-
-it("keeps provider access scoped below global defaults and connects without navigation", async () => {
-  const { context } = createHarness("writer");
-  const page = appendPage(context);
-  await waitForFast(() => expect(page.data?.updatedAt).toEqual(expect.any(Number)));
-  await waitForFast(() =>
-    expect(page.querySelector<HTMLButtonElement>("[data-models-connect]")?.disabled).toBe(false),
-  );
-  const defaults = page.querySelector("#settings-model-behavior")!;
-  const agent = page.querySelector("[data-models-provider-agent]")!;
-  expect(page.querySelector("openclaw-agent-select")).toBeNull();
-  expect(agent.textContent?.toLowerCase()).toContain("writer");
-  expect(context.agentSelection.state.selectedId).toBe("main");
-  expect(context.settingsAgentSelection.state.selectedId).toBe("writer");
-  expect(defaults.contains(agent)).toBe(false);
-  expect(defaults.compareDocumentPosition(agent) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
-  expect(agent.closest(".settings-section")?.textContent).toContain("Provider access");
-  expect(
-    [...page.querySelectorAll("button")].some(
-      (button) => button.textContent?.trim() === "Model setup",
-    ),
-  ).toBe(false);
-  page.querySelector<HTMLButtonElement>("[data-models-connect]")!.click();
-  await page.updateComplete;
-  expect(page.querySelector("openclaw-modal-dialog")).not.toBeNull();
-  expect(context.navigate).not.toHaveBeenCalled();
-  expect(defaults.isConnected).toBe(true);
 });

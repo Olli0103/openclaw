@@ -127,7 +127,6 @@ async function markRecoveryStore(params: {
 export async function markRestartAbortedMainSessions(params: {
   resolveGatewayContext: GatewayContextResolver;
   cfg?: OpenClawConfig;
-  additionalCfgs?: Iterable<OpenClawConfig | undefined>;
   stateDir?: string;
   activeRuns: Iterable<RestartRecoveryCandidate>;
   isActiveRun?: (run: RestartRecoveryCandidate) => boolean;
@@ -143,13 +142,8 @@ export async function markRestartAbortedMainSessions(params: {
     return result;
   }
 
-  const storeTargets = new Map<
-    string,
-    Pick<MainSessionRecoveryStoreTarget, "agentId" | "storePath">
-  >();
-  const addStoreTarget = (
-    target: Pick<MainSessionRecoveryStoreTarget, "agentId" | "storePath">,
-  ) => {
+  const storeTargets = new Map<string, RestartRecoveryStoreTarget>();
+  const addStoreTarget = (target: RestartRecoveryStoreTarget) => {
     const resolved = resolveSqliteTargetFromSessionStorePath(target.storePath, {
       agentId: target.agentId,
     });
@@ -161,20 +155,17 @@ export async function markRestartAbortedMainSessions(params: {
     }
   };
   const stateDir = params.stateDir ?? resolveStateDir(process.env);
-  const configs = [params.cfg, ...(params.additionalCfgs ?? [])].filter(Boolean);
-  for (const cfg of configs.length > 0 ? configs : [undefined]) {
-    try {
-      for (const target of await discoverRestartRecoveryStoreTargets({ cfg, stateDir })) {
-        addStoreTarget(target);
-      }
-    } catch (err) {
-      if (!cfg) {
-        throw err;
-      }
-      mainSessionRecoveryLog.warn(
-        `failed to resolve configured session stores for restart marker: ${String(err)}`,
-      );
+  try {
+    for (const target of await discoverRestartRecoveryStoreTargets({ cfg: params.cfg, stateDir })) {
+      addStoreTarget(target);
     }
+  } catch (err) {
+    if (!params.cfg) {
+      throw err;
+    }
+    mainSessionRecoveryLog.warn(
+      `failed to resolve configured session stores for restart marker: ${String(err)}`,
+    );
   }
 
   for (const storePath of activeAdmissions.targets.keys()) {
@@ -237,7 +228,6 @@ export async function markRestartAbortedMainSessions(params: {
             ) {
               return undefined;
             }
-            const wasRunning = entry.status === "running";
             const runs = normalizeMainSessionRecoveryRunFences([
               ...(entry.restartRecoveryRuns ?? []).filter(
                 (run) => run.lifecycleGeneration === currentLifecycleGeneration,
@@ -263,7 +253,7 @@ export async function markRestartAbortedMainSessions(params: {
               action: "mark",
               forceRestartSafeTools: matchedActiveAdmission,
               replaceRuns: true,
-              resetRuntime: !wasRunning,
+              resetRuntime: entry.status !== "running",
               runs,
             };
           },

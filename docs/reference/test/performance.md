@@ -13,7 +13,7 @@ read_when:
 - `pnpm test:perf:profile:main` writes a CPU profile for the Vitest main thread; `pnpm test:perf:profile:runner` writes CPU + heap profiles for each unit worker. Both print their output directory (a temporary directory by default). Use `-- --output-dir <dir>` or `OPENCLAW_VITEST_PROFILE_DIR` to retain profiles at a chosen location.
 - `pnpm test:perf:groups --full-suite --allow-failures --output .artifacts/test-perf/baseline-before.json`: runs every full-suite Vitest leaf config serially and writes grouped duration data plus per-config JSON/log artifacts. Full-suite reports isolate files by default so retained module graphs and GC pauses from earlier files are not charged to later assertions; pass `-- --no-isolate` only when intentionally profiling shared-worker accumulation. `pnpm test:perf:groups:compare .artifacts/test-perf/baseline-before.json .artifacts/test-perf/after-agent.json` compares grouped reports after a performance-focused change.
 - Full, extension, and include-pattern shard runs update local timing data in `.artifacts/vitest-shard-timings.json`; later whole-config runs use those timings to balance slow and fast shards. Include-pattern CI shards append the shard name to the timing key, which keeps filtered shard timings visible without replacing whole-config timing data. Set `OPENCLAW_TEST_PROJECTS_TIMINGS=0` to ignore the local timing artifact.
-- `pnpm ci:timings:refit`: regenerate committed `config/ci-test-timings.json` from the last five successful main CI runs; add `--dry-run` to preview the changed-entry table. This file owns per-file UI E2E and per-profile compact-group weights, unlike the gitignored `.artifacts/vitest-shard-timings.json` whole-config timing cache. Independent CI shards use only the committed weights, never that cache. See [CI timing refits](/ci/capacity#measured-shard-weights) for the daily refresh and sampling rules.
+- `pnpm ci:timings:refit`: regenerate committed `config/ci-test-timings.json` from up to five completed scheduled main CI runs using their successful jobs; add `--dry-run` to preview the changed-entry table. This file owns per-file UI E2E and per-profile compact-group weights, unlike the gitignored `.artifacts/vitest-shard-timings.json` whole-config timing cache. Independent CI shards use only the committed weights, never that cache. See [CI timing refits](/ci/capacity#measured-shard-weights) for the daily refresh and sampling rules.
 
 Runner profiling preserves the selected `forks` or `threads` pool, isolation, environment, and custom runners extending Vitest's `TestRunner`. Capture starts in a Node preload before Vitest worker imports, spans all files assigned to that worker, and finishes both profile files in awaited worker cleanup before teardown is acknowledged. It does not depend on exit-time profile flushing. Root global setup configures every selected project without replacing its reporters or setup. Main capture spans Vitest/Vite startup through run completion and close. Process termination before cleanup, bootstrap failures before runner construction, and teardown timeouts can still prevent output. Browser/VM pools, custom runners without `onCleanupWorkerContext`, and additional native `--cpu-prof`/`--heap-prof` flags are rejected for runner profiling.
 
@@ -70,9 +70,21 @@ alongside the report.
 Each case records startup from the initialized measurement preload to HTTP
 readiness, one unmeasured health warmup, a 250 ms idle window, 20 completed
 `health` RPCs, and a 250 ms post-work window. The conformance case additionally
-creates a session and runs 20 asserted `kitchen_sink_text` calls with unique
-idempotency keys, followed by another observation window. Setup and package
-installation are outside measured phases; failed measured calls are not retried.
+measures one asserted `session-create`, then 20 asserted `kitchen_sink_text`
+calls with unique idempotency keys, followed by another observation window.
+The `plugin-tool` aggregate retains all 20 calls. Its nested `breakdown` separates
+`plugin-tool-first` (the original first call) from `plugin-tool-warm` (the remaining
+19); no call is discarded or added as warmup. Both children share the same raw
+midpoint snapshot, and the aggregate uses the original outer snapshots. Do not
+sum the aggregate and its children. The aggregate includes midpoint sampling
+overhead; these are whole-Gateway costs in an already started host, not isolated
+schema construction, cold loading or plugin allocation costs. Neither session
+creation nor plugin tools have an empty-host subtraction.
+
+Setup and package installation are outside measured phases. Failed measured
+calls are not retried. Missing or invalid boundary samples fail the observation
+without changing the completed-call count; an unavailable midpoint stops work
+before warm calls. A later failure preserves the successful first-call receipt.
 
 After those matched phases, the conformance case uses `kitchen.resources` to
 verify ten million CPU iterations and a fixed checksum, hold a 16 MiB Buffer,
@@ -139,6 +151,8 @@ only the selected plugins there. The workload callback receives authenticated
 CLI-mode RPC calls, resource snapshots and counted `measure(name, count, run)`
 phases. Assert the active plugin inventory and operation results in the workload;
 registration or a successful transport response alone does not establish coverage.
+Pass `{ splitFirst: true }` as the fourth `measure` argument to retain a nested
+first/warm breakdown with shared boundary samples and unchanged operation indices.
 
 The host records startup, preserves failed phases and joins Gateway shutdown
 before checking service-stop logs. A failed workload, nonzero exit, attempted
@@ -231,7 +245,7 @@ pnpm tsx scripts/bench-cli-startup.ts --runtime-rss --case status --runs 3
 Presets:
 
 - `startup`: `--version`, `--help`, `health`, `health --json`, `status --json`, `status`
-- `real`: `health`, `status`, `status --json`, `sessions`, `sessions --json`, `tasks --json`, `tasks list --json`, `tasks audit --json`, `agents list --json`, `gateway status`, `gateway status --json`, `gateway health --json`, `config get gateway.port`
+- `real`: `health`, `status`, `status --json`, `sessions`, `sessions --json`, `agents list --json`, `gateway status`, `gateway status --json`, `gateway health --json`, `config get gateway.port`
 - `all`: both presets combined
 
 Output includes `sampleCount`, avg, p50, p95, min/max, exit-code/signal distribution, and RSS per command. The `maxRssMb` fields use MiB. By default, RSS uses the last preload marker received on stderr, preserving the historical fixture's attribution. A respawning launcher can supply that last marker. Default reports omit `memoryMetric` and sample `memory`; no runtime identity or temporary observation files are required. For a silent command, the exit marker can count as first output.
@@ -270,6 +284,15 @@ Output includes first process output, `/healthz`, `/readyz`, HTTP listen log tim
 `/healthz` is liveness (HTTP server can answer). `/readyz` is usable readiness (startup plugin sidecars, channels, and ready-critical post-attach work have settled). Startup hooks dispatch asynchronously and are not part of the readiness guarantee. Ready log time is the Gateway's internal timestamp, useful for process-side attribution but not a substitute for the external `/readyz` probe.
 
 Use JSON output or `--output` when comparing changes. Use `--cpu-prof-dir` only after trace output points at import, compile, or CPU-bound work that phase timings alone cannot explain.
+
+After readiness, the Gateway uses idle turns to prepare common Control UI handler
+modules and configured local agent skill discovery. Each item yields to admitted
+foreground work, and shutdown joins preparation that has already started. This
+work does not execute chat requests, create connection state, or fetch live provider
+catalogs. Context-window cache preparation shares this sequence and starts no
+earlier than five seconds after scheduling. Compare immediate first requests with
+requests after an idle interval; readiness alone does not guarantee every optional
+cache is warm.
 
 </Accordion>
 
@@ -400,7 +423,7 @@ Use `--probe-rounds N` for allocation comparisons with equal probe work. It
 attempts exactly N sampler rounds and N history bursts per configured history
 client, regardless of which finishes first. Each sampler round requests
 `/readyz`, the Control UI, and `sessions.list`; `--control-plane` adds one each
-of `tasks.list`, `cron.list`, and `cron.status`. Enabling `--subscribers` adds
+of `cron.list` and `cron.status`. Enabling `--subscribers` adds
 one subscribe attempt per round and an unsubscribe after each successful
 subscription. History attempts total `N × historyClients × historyBurst`, capped
 at 2048 per run. Slow clients receive the same history budget as fast clients.

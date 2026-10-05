@@ -67,19 +67,16 @@ export function buildControlUiCspHeader(opts?: {
     "https://tweakcn.com",
   ];
   if (opts?.portalHost) {
-    try {
-      const parsed = new URL(`http://${opts.portalHost}`);
-      const isHostOnly =
-        !parsed.username &&
-        !parsed.password &&
-        parsed.pathname === "/" &&
-        !parsed.search &&
-        !parsed.hash;
-      if (isHostOnly && parsed.hostname) {
-        connectTokens.push(`http://${parsed.hostname}:*`, `https://${parsed.hostname}:*`);
-      }
-    } catch {
-      // Invalid Host headers do not relax the baseline policy.
+    const parsed = URL.parse(`http://${opts.portalHost}`);
+    if (
+      parsed?.hostname &&
+      !parsed.username &&
+      !parsed.password &&
+      parsed.pathname === "/" &&
+      !parsed.search &&
+      !parsed.hash
+    ) {
+      connectTokens.push(`http://${parsed.hostname}:*`, `https://${parsed.hostname}:*`);
     }
   }
   return [
@@ -89,7 +86,7 @@ export function buildControlUiCspHeader(opts?: {
     "frame-ancestors 'none'",
     // Gateway selection can move to a remote dedicated MCP Apps origin after
     // this document loads. The component still validates the exact endpoint.
-    "frame-src 'self' http: https:",
+    "frame-src 'self' blob: http: https:",
     `script-src ${scriptTokens.join(" ")}`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "img-src 'self' data: blob: https:",
