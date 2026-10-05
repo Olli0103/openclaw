@@ -152,6 +152,10 @@ function toolchain() {
   assert.equal(bun, "1.4.2");
   const typescript = require("typescript/package.json").version;
   assert.equal(typescript, "7.1.0-dev.20260920.1");
+  const compilerPackage = require.resolve("typescript/package.json");
+  const compilerExecutable = fs.realpathSync(
+    require(path.join(path.dirname(compilerPackage), "lib/getExePath.js")).default(),
+  );
   return {
     node: process.version,
     pnpm,
@@ -159,7 +163,9 @@ function toolchain() {
     bun,
     bunSHA256: hash(fs.readFileSync(fs.realpathSync("/usr/local/bin/bun"))),
     typescript,
-    expectedAsyncTransport: "tsgo --api --async",
+    compilerExecutable: path.relative(process.cwd(), compilerExecutable),
+    compilerSHA256: hash(fs.readFileSync(compilerExecutable)),
+    expectedAsyncTransport: `${path.basename(compilerExecutable)} --api --async`,
     lockfileSHA256: hash(fs.readFileSync("pnpm-lock.yaml")),
   };
 }
@@ -266,6 +272,7 @@ async function runMeasured(
   { expectCompilers = false, expectedOverride, sharedBudget = false, timeoutMs = 45 * 60_000 } = {},
 ) {
   const tools = toolchain();
+  const compilerExecutable = path.resolve(process.cwd(), tools.compilerExecutable);
   const memoryBefore = cgroupMemory(),
     eventsBefore = events(),
     started = Date.now();
@@ -305,6 +312,7 @@ async function runMeasured(
           ppid: Number(/^PPid:\s+(\d+)/mu.exec(status)?.[1]),
           rssKiB: Number(/^VmRSS:\s+(\d+) kB$/mu.exec(status)?.[1] ?? 0),
           argv,
+          executable: fs.realpathSync(`/proc/${pid}/exe`),
         });
       } catch {
         /* Processes can exit between procfs reads. */
@@ -326,11 +334,7 @@ async function runMeasured(
       active = 0;
     for (const row of rows.filter((entry) => owned.has(entry.pid))) {
       totalRSS += row.rssKiB;
-      if (
-        !row.argv.includes("--api") ||
-        !/^tsgo(?:\.exe)?$/u.test(path.basename(row.argv[0] ?? ""))
-      )
-        continue;
+      if (!row.argv.includes("--api") || row.executable !== compilerExecutable) continue;
       const isAsync = row.argv.includes("--async");
       if (isAsync) active++;
       compilerRSS += row.rssKiB;
@@ -356,7 +360,7 @@ async function runMeasured(
           compilers.set(row.pid, {
             pid: row.pid,
             parentPid: row.ppid,
-            executable: path.basename(row.argv[0]),
+            executable: path.basename(row.executable),
             transport: isAsync ? "--api --async" : "--api (sync parser)",
             async: isAsync,
             firstSeenMs: Date.now() - started,
@@ -428,7 +432,7 @@ async function runMeasured(
     if (expectCompilers)
       assert.ok(
         asyncCompilers.length > 0,
-        "No actual tsgo --api --async declaration child observed",
+        "No actual installed compiler --api --async declaration child observed",
       );
     for (const compiler of compilers.values()) {
       if (expectedOverride)
@@ -625,7 +629,7 @@ async function containerCell(name) {
       { expectCompilers: true },
     );
   } else if (name === "parallel") {
-    const requiredBytes = 13.5 * GiB,
+    const requiredBytes = 11.5 * GiB,
       availableBytes = Math.min(
         expectedLimit - Number(memory["memory.current"]),
         memoryInfo().MemAvailable,
@@ -635,15 +639,15 @@ async function containerCell(name) {
         expectedHead,
         status: "skipped",
         reason:
-          "Actual available capacity below two 6144 MiB Node heaps plus 768 MiB headroom per child",
+          "Actual available capacity below two 5120 MiB Node heaps plus 768 MiB headroom per child",
         availableBytes,
         requiredBytes,
         notProven: "Real two-worker budget sharing",
       });
-      console.log("Parallel cell skipped: actual capacity below 13.5 GiB admission requirement");
+      console.log("Parallel cell skipped: actual capacity below 11.5 GiB admission requirement");
       return;
     }
-    env.OPENCLAW_TSDOWN_MAX_OLD_SPACE_MB = "6144";
+    env.OPENCLAW_TSDOWN_MAX_OLD_SPACE_MB = "5120";
     clearCompilerCaches();
     await runMeasured(
       name,
