@@ -1,0 +1,1403 @@
+{
+  "sourceSha": "51c771ef3d6c6047e12a1fbb2b1515515abaf753",
+  "scope": "real Slack Socket Mode/native Stop; deterministic non-command reply output",
+  "cells": [
+    {
+      "id": "21a8a468",
+      "scenario": "sealing",
+      "startMarker": "PR163511_START_21a8a468",
+      "bMarker": "PR163511_HUMAN_B_21a8a468",
+      "aText": "PR163511_VISIBLE_A_21a8a468: deterministic source-path proof. Waiting for an actual human reply and Slack native Stop.",
+      "cText": "PR163511_LATE_C_21a8a468: this payload must not become visible after native Stop.",
+      "started": true,
+      "aReleased": true,
+      "aSettled": true,
+      "bBoundaryEntered": true,
+      "bHandlerSettled": true,
+      "cReleased": true,
+      "cAttempted": true,
+      "cSettled": true,
+      "settled": true,
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "streamTs": "1791279308.580329",
+      "nativeStops": [
+        {
+          "eventId": "Ev0C75LW554L",
+          "eventTs": "1791279403.461213",
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279276.655369",
+          "user": "U0AHA8MRGH4",
+          "nativeAuthenticated": true,
+          "streamMessageTs": [
+            "1791279308.580329"
+          ],
+          "sequence": 41
+        }
+      ],
+      "admittedStops": 1,
+      "coreStopsSettled": 1,
+      "wires": [
+        {
+          "method": "agents.sessions.setStatus",
+          "phase": "request",
+          "sequence": 15,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279276.655369",
+          "requestDigest": "229bdfffde8e982f2fe90f134326a68d9678b778baa2743ad1a211d3395df211",
+          "containsC": false
+        },
+        {
+          "method": "agents.sessions.setStatus",
+          "phase": "forwarded",
+          "sequence": 16,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279276.655369",
+          "requestDigest": "229bdfffde8e982f2fe90f134326a68d9678b778baa2743ad1a211d3395df211",
+          "containsC": false
+        },
+        {
+          "method": "agents.sessions.setStatus",
+          "phase": "response",
+          "sequence": 17,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279276.655369",
+          "requestDigest": "229bdfffde8e982f2fe90f134326a68d9678b778baa2743ad1a211d3395df211",
+          "status": 200,
+          "ok": true,
+          "containsC": false
+        },
+        {
+          "method": "chat.startStream",
+          "phase": "request",
+          "sequence": 19,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279276.655369",
+          "requestDigest": "a1198c735be3dd7131d01c6d28da1b870f61f497192be974b903b3bd6bb5f7f0",
+          "containsC": false
+        },
+        {
+          "method": "chat.startStream",
+          "phase": "forwarded",
+          "sequence": 20,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279276.655369",
+          "requestDigest": "a1198c735be3dd7131d01c6d28da1b870f61f497192be974b903b3bd6bb5f7f0",
+          "containsC": false
+        },
+        {
+          "method": "chat.startStream",
+          "phase": "response",
+          "sequence": 21,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279276.655369",
+          "messageTs": "1791279308.580329",
+          "requestDigest": "a1198c735be3dd7131d01c6d28da1b870f61f497192be974b903b3bd6bb5f7f0",
+          "status": 200,
+          "ok": true,
+          "containsC": false
+        },
+        {
+          "method": "agents.sessions.setStatus",
+          "phase": "request",
+          "sequence": 24,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279276.655369",
+          "requestDigest": "bf06c275586cbaf7240f49404b40361bf466cb8856c391d9bd857e39fbc12fc2",
+          "containsC": false
+        },
+        {
+          "method": "agents.sessions.setStatus",
+          "phase": "forwarded",
+          "sequence": 25,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279276.655369",
+          "requestDigest": "bf06c275586cbaf7240f49404b40361bf466cb8856c391d9bd857e39fbc12fc2",
+          "containsC": false
+        },
+        {
+          "method": "agents.sessions.setStatus",
+          "phase": "response",
+          "sequence": 26,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279276.655369",
+          "requestDigest": "bf06c275586cbaf7240f49404b40361bf466cb8856c391d9bd857e39fbc12fc2",
+          "status": 200,
+          "ok": true,
+          "containsC": false
+        },
+        {
+          "method": "chat.stopStream",
+          "phase": "request",
+          "sequence": 36,
+          "channel": "D0C6Z352KD4",
+          "messageTs": "1791279308.580329",
+          "requestDigest": "2460ef9d34812943b823a9d7645152a5ec57122811bc53118020654aa1b17ac0",
+          "containsC": false
+        },
+        {
+          "method": "chat.stopStream",
+          "phase": "held_before_upstream",
+          "sequence": 37,
+          "channel": "D0C6Z352KD4",
+          "messageTs": "1791279308.580329",
+          "requestDigest": "2460ef9d34812943b823a9d7645152a5ec57122811bc53118020654aa1b17ac0",
+          "containsC": false
+        },
+        {
+          "method": "agents.sessions.setStatus",
+          "phase": "request",
+          "sequence": 38,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279276.655369",
+          "requestDigest": "d2b24f78a5e20aea433ac9fd33b9a0bc157056a10c0ac7e0589e4b67ef00b0ea",
+          "containsC": false
+        },
+        {
+          "method": "agents.sessions.setStatus",
+          "phase": "forwarded",
+          "sequence": 39,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279276.655369",
+          "requestDigest": "d2b24f78a5e20aea433ac9fd33b9a0bc157056a10c0ac7e0589e4b67ef00b0ea",
+          "containsC": false
+        },
+        {
+          "method": "agents.sessions.setStatus",
+          "phase": "response",
+          "sequence": 40,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279276.655369",
+          "requestDigest": "d2b24f78a5e20aea433ac9fd33b9a0bc157056a10c0ac7e0589e4b67ef00b0ea",
+          "status": 200,
+          "ok": true,
+          "containsC": false
+        },
+        {
+          "method": "chat.postMessage",
+          "phase": "request",
+          "sequence": 46,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279276.655369",
+          "requestDigest": "392f2cd6febde040cfe48828e53e2ff3212655674e5dcfcc707475d1be0b2637",
+          "containsC": false
+        },
+        {
+          "method": "chat.postMessage",
+          "phase": "forwarded",
+          "sequence": 47,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279276.655369",
+          "requestDigest": "392f2cd6febde040cfe48828e53e2ff3212655674e5dcfcc707475d1be0b2637",
+          "containsC": false
+        },
+        {
+          "method": "chat.postMessage",
+          "phase": "response",
+          "sequence": 48,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279276.655369",
+          "requestDigest": "392f2cd6febde040cfe48828e53e2ff3212655674e5dcfcc707475d1be0b2637",
+          "status": 200,
+          "ok": true,
+          "containsC": false
+        },
+        {
+          "method": "chat.stopStream",
+          "phase": "forwarded",
+          "sequence": 49,
+          "channel": "D0C6Z352KD4",
+          "messageTs": "1791279308.580329",
+          "requestDigest": "2460ef9d34812943b823a9d7645152a5ec57122811bc53118020654aa1b17ac0",
+          "containsC": false
+        },
+        {
+          "method": "chat.stopStream",
+          "phase": "response",
+          "sequence": 50,
+          "channel": "D0C6Z352KD4",
+          "messageTs": "1791279308.580329",
+          "requestDigest": "2460ef9d34812943b823a9d7645152a5ec57122811bc53118020654aa1b17ac0",
+          "status": 200,
+          "ok": true,
+          "containsC": false
+        }
+      ],
+      "limitations": [
+        "deterministic-non-command-output",
+        "not-live-model-cancellation",
+        "wire-receipts-are-parent-forwarder-reports",
+        "no-automatic-live-pass-claim"
+      ]
+    },
+    {
+      "id": "557cc293",
+      "scenario": "before",
+      "startMarker": "PR163511_START_557cc293",
+      "bMarker": "PR163511_HUMAN_B_557cc293",
+      "aText": "PR163511_VISIBLE_A_557cc293: deterministic source-path proof. Waiting for an actual human reply and Slack native Stop.",
+      "cText": "PR163511_LATE_C_557cc293: this payload must not become visible after native Stop.",
+      "started": true,
+      "aReleased": true,
+      "aSettled": true,
+      "bBoundaryEntered": true,
+      "bHandlerSettled": true,
+      "cReleased": true,
+      "cAttempted": true,
+      "cSettled": true,
+      "settled": true,
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279457.213529",
+      "streamTs": "1791279485.819219",
+      "nativeStops": [
+        {
+          "eventId": "Ev0C71S15J66",
+          "eventTs": "1791279506.376904",
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279457.213529",
+          "user": "U0AHA8MRGH4",
+          "nativeAuthenticated": true,
+          "streamMessageTs": [
+            "1791279485.819219"
+          ],
+          "sequence": 78
+        }
+      ],
+      "admittedStops": 1,
+      "coreStopsSettled": 1,
+      "wires": [
+        {
+          "method": "agents.sessions.setStatus",
+          "phase": "request",
+          "sequence": 63,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279457.213529",
+          "requestDigest": "45d1b7801492729d58d9a99b7a6ac938ec11ca8d043d116be29d8a57615b0063",
+          "containsC": false
+        },
+        {
+          "method": "agents.sessions.setStatus",
+          "phase": "forwarded",
+          "sequence": 64,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279457.213529",
+          "requestDigest": "45d1b7801492729d58d9a99b7a6ac938ec11ca8d043d116be29d8a57615b0063",
+          "containsC": false
+        },
+        {
+          "method": "agents.sessions.setStatus",
+          "phase": "response",
+          "sequence": 65,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279457.213529",
+          "requestDigest": "45d1b7801492729d58d9a99b7a6ac938ec11ca8d043d116be29d8a57615b0063",
+          "status": 200,
+          "ok": true,
+          "containsC": false
+        },
+        {
+          "method": "chat.startStream",
+          "phase": "request",
+          "sequence": 67,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279457.213529",
+          "requestDigest": "2275b9dde0c95d25d171749bccfa3affcfa723aae2425416fbde0c82f9d403cb",
+          "containsC": false
+        },
+        {
+          "method": "chat.startStream",
+          "phase": "forwarded",
+          "sequence": 68,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279457.213529",
+          "requestDigest": "2275b9dde0c95d25d171749bccfa3affcfa723aae2425416fbde0c82f9d403cb",
+          "containsC": false
+        },
+        {
+          "method": "chat.startStream",
+          "phase": "response",
+          "sequence": 69,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279457.213529",
+          "messageTs": "1791279485.819219",
+          "requestDigest": "2275b9dde0c95d25d171749bccfa3affcfa723aae2425416fbde0c82f9d403cb",
+          "status": 200,
+          "ok": true,
+          "containsC": false
+        },
+        {
+          "method": "chat.postMessage",
+          "phase": "request",
+          "sequence": 82,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279457.213529",
+          "requestDigest": "9e7641817cbb76aae6616f7f6cc22aa34a1f40a56442dffe7036d5afa1c346f4",
+          "containsC": false
+        },
+        {
+          "method": "chat.postMessage",
+          "phase": "forwarded",
+          "sequence": 83,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279457.213529",
+          "requestDigest": "9e7641817cbb76aae6616f7f6cc22aa34a1f40a56442dffe7036d5afa1c346f4",
+          "containsC": false
+        },
+        {
+          "method": "chat.postMessage",
+          "phase": "response",
+          "sequence": 84,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279457.213529",
+          "requestDigest": "9e7641817cbb76aae6616f7f6cc22aa34a1f40a56442dffe7036d5afa1c346f4",
+          "status": 200,
+          "ok": true,
+          "containsC": false
+        },
+        {
+          "method": "agents.sessions.setStatus",
+          "phase": "request",
+          "sequence": 89,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279457.213529",
+          "requestDigest": "26c41a2bc007c993ba79181aeaab4c1303a49237812def9fce1ffdadc61b28ce",
+          "containsC": false
+        },
+        {
+          "method": "agents.sessions.setStatus",
+          "phase": "forwarded",
+          "sequence": 90,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279457.213529",
+          "requestDigest": "26c41a2bc007c993ba79181aeaab4c1303a49237812def9fce1ffdadc61b28ce",
+          "containsC": false
+        },
+        {
+          "method": "agents.sessions.setStatus",
+          "phase": "response",
+          "sequence": 91,
+          "channel": "D0C6Z352KD4",
+          "threadTs": "1791279457.213529",
+          "requestDigest": "26c41a2bc007c993ba79181aeaab4c1303a49237812def9fce1ffdadc61b28ce",
+          "status": 200,
+          "ok": true,
+          "containsC": false
+        }
+      ],
+      "limitations": [
+        "deterministic-non-command-output",
+        "not-live-model-cancellation",
+        "wire-receipts-are-parent-forwarder-reports",
+        "no-automatic-live-pass-claim"
+      ]
+    }
+  ],
+  "receipts": [
+    {
+      "sequence": 10,
+      "elapsedMs": 43086,
+      "kind": "cell-armed",
+      "cell": "21a8a468",
+      "scenario": "sealing"
+    },
+    {
+      "sequence": 11,
+      "elapsedMs": 59284,
+      "kind": "start-native-received",
+      "cell": "21a8a468",
+      "eventId": "Ev0C7WBATJ6L",
+      "eventTs": "1791279300.303289",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "user": "U0AHA8MRGH4",
+      "nativeAuthenticated": true,
+      "ingressThreaded": true
+    },
+    {
+      "sequence": 14,
+      "elapsedMs": 62413,
+      "kind": "deterministic-driver-started",
+      "cell": "21a8a468",
+      "threadTs": "1791279276.655369",
+      "sessionKeyDigest": "56d45159592e3dcc057c69f2220515afa2b3c1fac60a86c78a71349b5dc893e0"
+    },
+    {
+      "sequence": 15,
+      "elapsedMs": 62422,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "agents.sessions.setStatus",
+      "phase": "request",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "requestDigest": "229bdfffde8e982f2fe90f134326a68d9678b778baa2743ad1a211d3395df211",
+      "containsC": false
+    },
+    {
+      "sequence": 16,
+      "elapsedMs": 62422,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "agents.sessions.setStatus",
+      "phase": "forwarded",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "requestDigest": "229bdfffde8e982f2fe90f134326a68d9678b778baa2743ad1a211d3395df211",
+      "containsC": false
+    },
+    {
+      "sequence": 17,
+      "elapsedMs": 62678,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "agents.sessions.setStatus",
+      "phase": "response",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "requestDigest": "229bdfffde8e982f2fe90f134326a68d9678b778baa2743ad1a211d3395df211",
+      "status": 200,
+      "ok": true,
+      "containsC": false
+    },
+    {
+      "sequence": 18,
+      "elapsedMs": 66687,
+      "kind": "a-gate-released",
+      "cell": "21a8a468"
+    },
+    {
+      "sequence": 19,
+      "elapsedMs": 66858,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "chat.startStream",
+      "phase": "request",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "requestDigest": "a1198c735be3dd7131d01c6d28da1b870f61f497192be974b903b3bd6bb5f7f0",
+      "containsC": false
+    },
+    {
+      "sequence": 20,
+      "elapsedMs": 66859,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "chat.startStream",
+      "phase": "forwarded",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "requestDigest": "a1198c735be3dd7131d01c6d28da1b870f61f497192be974b903b3bd6bb5f7f0",
+      "containsC": false
+    },
+    {
+      "sequence": 21,
+      "elapsedMs": 67182,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "chat.startStream",
+      "phase": "response",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "messageTs": "1791279308.580329",
+      "requestDigest": "a1198c735be3dd7131d01c6d28da1b870f61f497192be974b903b3bd6bb5f7f0",
+      "status": 200,
+      "ok": true,
+      "containsC": false
+    },
+    {
+      "sequence": 22,
+      "elapsedMs": 67185,
+      "kind": "a-dispatch-settled",
+      "cell": "21a8a468"
+    },
+    {
+      "sequence": 24,
+      "elapsedMs": 122684,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "agents.sessions.setStatus",
+      "phase": "request",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "requestDigest": "bf06c275586cbaf7240f49404b40361bf466cb8856c391d9bd857e39fbc12fc2",
+      "containsC": false
+    },
+    {
+      "sequence": 25,
+      "elapsedMs": 122685,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "agents.sessions.setStatus",
+      "phase": "forwarded",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "requestDigest": "bf06c275586cbaf7240f49404b40361bf466cb8856c391d9bd857e39fbc12fc2",
+      "containsC": false
+    },
+    {
+      "sequence": 26,
+      "elapsedMs": 122936,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "agents.sessions.setStatus",
+      "phase": "response",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "requestDigest": "bf06c275586cbaf7240f49404b40361bf466cb8856c391d9bd857e39fbc12fc2",
+      "status": 200,
+      "ok": true,
+      "containsC": false
+    },
+    {
+      "sequence": 27,
+      "elapsedMs": 133890,
+      "kind": "human-b-native-received",
+      "cell": "21a8a468",
+      "eventId": "Ev0C75LUDMSQ",
+      "eventTs": "1791279374.878939",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "user": "U0AHA8MRGH4",
+      "nativeAuthenticated": true
+    },
+    {
+      "sequence": 29,
+      "elapsedMs": 133891,
+      "kind": "human-b-production-boundary-entered",
+      "cell": "21a8a468",
+      "basis": "plain-message-callback-synchronous-entry-before-dispatch-await"
+    },
+    {
+      "sequence": 33,
+      "elapsedMs": 134185,
+      "kind": "human-b-production-handler-settled",
+      "cell": "21a8a468"
+    },
+    {
+      "sequence": 34,
+      "elapsedMs": 149895,
+      "kind": "c-gate-released",
+      "cell": "21a8a468"
+    },
+    {
+      "sequence": 35,
+      "elapsedMs": 149895,
+      "kind": "late-c-dispatch-attempt",
+      "cell": "21a8a468"
+    },
+    {
+      "sequence": 36,
+      "elapsedMs": 149900,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "chat.stopStream",
+      "phase": "request",
+      "channel": "D0C6Z352KD4",
+      "messageTs": "1791279308.580329",
+      "requestDigest": "2460ef9d34812943b823a9d7645152a5ec57122811bc53118020654aa1b17ac0",
+      "containsC": false
+    },
+    {
+      "sequence": 37,
+      "elapsedMs": 149900,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "chat.stopStream",
+      "phase": "held_before_upstream",
+      "channel": "D0C6Z352KD4",
+      "messageTs": "1791279308.580329",
+      "requestDigest": "2460ef9d34812943b823a9d7645152a5ec57122811bc53118020654aa1b17ac0",
+      "containsC": false
+    },
+    {
+      "sequence": 38,
+      "elapsedMs": 149907,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "agents.sessions.setStatus",
+      "phase": "request",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "requestDigest": "d2b24f78a5e20aea433ac9fd33b9a0bc157056a10c0ac7e0589e4b67ef00b0ea",
+      "containsC": false
+    },
+    {
+      "sequence": 39,
+      "elapsedMs": 149908,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "agents.sessions.setStatus",
+      "phase": "forwarded",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "requestDigest": "d2b24f78a5e20aea433ac9fd33b9a0bc157056a10c0ac7e0589e4b67ef00b0ea",
+      "containsC": false
+    },
+    {
+      "sequence": 40,
+      "elapsedMs": 150171,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "agents.sessions.setStatus",
+      "phase": "response",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "requestDigest": "d2b24f78a5e20aea433ac9fd33b9a0bc157056a10c0ac7e0589e4b67ef00b0ea",
+      "status": 200,
+      "ok": true,
+      "containsC": false
+    },
+    {
+      "sequence": 41,
+      "elapsedMs": 162188,
+      "kind": "native-stop-received",
+      "cell": "21a8a468",
+      "eventId": "Ev0C75LW554L",
+      "eventTs": "1791279403.461213",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "user": "U0AHA8MRGH4",
+      "nativeAuthenticated": true,
+      "streamMessageTs": [
+        "1791279308.580329"
+      ]
+    },
+    {
+      "sequence": 43,
+      "elapsedMs": 162695,
+      "kind": "native-stop-admitted-to-real-core",
+      "cell": "21a8a468",
+      "eventId": "Ev0C75LW554L",
+      "targetSessionDigest": "56d45159592e3dcc057c69f2220515afa2b3c1fac60a86c78a71349b5dc893e0"
+    },
+    {
+      "sequence": 45,
+      "elapsedMs": 167044,
+      "kind": "real-core-stop-settled",
+      "cell": "21a8a468",
+      "counts": {
+        "tool": 0,
+        "block": 0,
+        "final": 1
+      }
+    },
+    {
+      "sequence": 46,
+      "elapsedMs": 167051,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "chat.postMessage",
+      "phase": "request",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "requestDigest": "392f2cd6febde040cfe48828e53e2ff3212655674e5dcfcc707475d1be0b2637",
+      "containsC": false
+    },
+    {
+      "sequence": 47,
+      "elapsedMs": 167052,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "chat.postMessage",
+      "phase": "forwarded",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "requestDigest": "392f2cd6febde040cfe48828e53e2ff3212655674e5dcfcc707475d1be0b2637",
+      "containsC": false
+    },
+    {
+      "sequence": 48,
+      "elapsedMs": 167264,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "chat.postMessage",
+      "phase": "response",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279276.655369",
+      "requestDigest": "392f2cd6febde040cfe48828e53e2ff3212655674e5dcfcc707475d1be0b2637",
+      "status": 200,
+      "ok": true,
+      "containsC": false
+    },
+    {
+      "sequence": 49,
+      "elapsedMs": 173301,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "chat.stopStream",
+      "phase": "forwarded",
+      "channel": "D0C6Z352KD4",
+      "messageTs": "1791279308.580329",
+      "requestDigest": "2460ef9d34812943b823a9d7645152a5ec57122811bc53118020654aa1b17ac0",
+      "containsC": false
+    },
+    {
+      "sequence": 50,
+      "elapsedMs": 173617,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "21a8a468",
+      "provenance": "parent-task-forwarder",
+      "method": "chat.stopStream",
+      "phase": "response",
+      "channel": "D0C6Z352KD4",
+      "messageTs": "1791279308.580329",
+      "requestDigest": "2460ef9d34812943b823a9d7645152a5ec57122811bc53118020654aa1b17ac0",
+      "status": 200,
+      "ok": true,
+      "containsC": false
+    },
+    {
+      "sequence": 51,
+      "elapsedMs": 173618,
+      "kind": "late-c-dispatch-settled",
+      "cell": "21a8a468",
+      "receipt": {
+        "counts": {
+          "tool": {
+            "delivered": 0,
+            "deliveredNotVisible": 0,
+            "cancelled": 0,
+            "failedBeforeSend": 0,
+            "failedAfterSend": 0
+          },
+          "block": {
+            "delivered": 1,
+            "deliveredNotVisible": 0,
+            "cancelled": 0,
+            "failedBeforeSend": 0,
+            "failedAfterSend": 0
+          },
+          "final": {
+            "delivered": 0,
+            "deliveredNotVisible": 1,
+            "cancelled": 0,
+            "failedBeforeSend": 0,
+            "failedAfterSend": 0
+          }
+        },
+        "anyVisibleDelivered": true
+      }
+    },
+    {
+      "sequence": 52,
+      "elapsedMs": 173618,
+      "kind": "deterministic-driver-settled",
+      "cell": "21a8a468"
+    },
+    {
+      "sequence": 53,
+      "elapsedMs": 190800,
+      "kind": "cell-armed",
+      "cell": "557cc293",
+      "scenario": "before"
+    },
+    {
+      "sequence": 59,
+      "elapsedMs": 232610,
+      "kind": "start-native-received",
+      "cell": "557cc293",
+      "eventId": "Ev0C71RXLD8A",
+      "eventTs": "1791279473.690219",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279457.213529",
+      "user": "U0AHA8MRGH4",
+      "nativeAuthenticated": true,
+      "ingressThreaded": true
+    },
+    {
+      "sequence": 62,
+      "elapsedMs": 233039,
+      "kind": "deterministic-driver-started",
+      "cell": "557cc293",
+      "threadTs": "1791279457.213529",
+      "sessionKeyDigest": "56d45159592e3dcc057c69f2220515afa2b3c1fac60a86c78a71349b5dc893e0"
+    },
+    {
+      "sequence": 63,
+      "elapsedMs": 233041,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "557cc293",
+      "provenance": "parent-task-forwarder",
+      "method": "agents.sessions.setStatus",
+      "phase": "request",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279457.213529",
+      "requestDigest": "45d1b7801492729d58d9a99b7a6ac938ec11ca8d043d116be29d8a57615b0063",
+      "containsC": false
+    },
+    {
+      "sequence": 64,
+      "elapsedMs": 233042,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "557cc293",
+      "provenance": "parent-task-forwarder",
+      "method": "agents.sessions.setStatus",
+      "phase": "forwarded",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279457.213529",
+      "requestDigest": "45d1b7801492729d58d9a99b7a6ac938ec11ca8d043d116be29d8a57615b0063",
+      "containsC": false
+    },
+    {
+      "sequence": 65,
+      "elapsedMs": 233290,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "557cc293",
+      "provenance": "parent-task-forwarder",
+      "method": "agents.sessions.setStatus",
+      "phase": "response",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279457.213529",
+      "requestDigest": "45d1b7801492729d58d9a99b7a6ac938ec11ca8d043d116be29d8a57615b0063",
+      "status": 200,
+      "ok": true,
+      "containsC": false
+    },
+    {
+      "sequence": 66,
+      "elapsedMs": 244081,
+      "kind": "a-gate-released",
+      "cell": "557cc293"
+    },
+    {
+      "sequence": 67,
+      "elapsedMs": 244084,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "557cc293",
+      "provenance": "parent-task-forwarder",
+      "method": "chat.startStream",
+      "phase": "request",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279457.213529",
+      "requestDigest": "2275b9dde0c95d25d171749bccfa3affcfa723aae2425416fbde0c82f9d403cb",
+      "containsC": false
+    },
+    {
+      "sequence": 68,
+      "elapsedMs": 244085,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "557cc293",
+      "provenance": "parent-task-forwarder",
+      "method": "chat.startStream",
+      "phase": "forwarded",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279457.213529",
+      "requestDigest": "2275b9dde0c95d25d171749bccfa3affcfa723aae2425416fbde0c82f9d403cb",
+      "containsC": false
+    },
+    {
+      "sequence": 69,
+      "elapsedMs": 244408,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "557cc293",
+      "provenance": "parent-task-forwarder",
+      "method": "chat.startStream",
+      "phase": "response",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279457.213529",
+      "messageTs": "1791279485.819219",
+      "requestDigest": "2275b9dde0c95d25d171749bccfa3affcfa723aae2425416fbde0c82f9d403cb",
+      "status": 200,
+      "ok": true,
+      "containsC": false
+    },
+    {
+      "sequence": 70,
+      "elapsedMs": 244409,
+      "kind": "a-dispatch-settled",
+      "cell": "557cc293"
+    },
+    {
+      "sequence": 71,
+      "elapsedMs": 263766,
+      "kind": "human-b-native-received",
+      "cell": "557cc293",
+      "eventId": "Ev0C6VPXHLCT",
+      "eventTs": "1791279504.824329",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279457.213529",
+      "user": "U0AHA8MRGH4",
+      "nativeAuthenticated": true
+    },
+    {
+      "sequence": 73,
+      "elapsedMs": 263766,
+      "kind": "human-b-production-boundary-entered",
+      "cell": "557cc293",
+      "basis": "plain-message-callback-synchronous-entry-before-dispatch-await"
+    },
+    {
+      "sequence": 77,
+      "elapsedMs": 264030,
+      "kind": "human-b-production-handler-settled",
+      "cell": "557cc293"
+    },
+    {
+      "sequence": 78,
+      "elapsedMs": 265105,
+      "kind": "native-stop-received",
+      "cell": "557cc293",
+      "eventId": "Ev0C71S15J66",
+      "eventTs": "1791279506.376904",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279457.213529",
+      "user": "U0AHA8MRGH4",
+      "nativeAuthenticated": true,
+      "streamMessageTs": [
+        "1791279485.819219"
+      ]
+    },
+    {
+      "sequence": 80,
+      "elapsedMs": 265112,
+      "kind": "native-stop-admitted-to-real-core",
+      "cell": "557cc293",
+      "eventId": "Ev0C71S15J66",
+      "targetSessionDigest": "56d45159592e3dcc057c69f2220515afa2b3c1fac60a86c78a71349b5dc893e0"
+    },
+    {
+      "sequence": 81,
+      "elapsedMs": 265136,
+      "kind": "real-core-stop-settled",
+      "cell": "557cc293",
+      "counts": {
+        "tool": 0,
+        "block": 0,
+        "final": 1
+      }
+    },
+    {
+      "sequence": 82,
+      "elapsedMs": 265139,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "557cc293",
+      "provenance": "parent-task-forwarder",
+      "method": "chat.postMessage",
+      "phase": "request",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279457.213529",
+      "requestDigest": "9e7641817cbb76aae6616f7f6cc22aa34a1f40a56442dffe7036d5afa1c346f4",
+      "containsC": false
+    },
+    {
+      "sequence": 83,
+      "elapsedMs": 265139,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "557cc293",
+      "provenance": "parent-task-forwarder",
+      "method": "chat.postMessage",
+      "phase": "forwarded",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279457.213529",
+      "requestDigest": "9e7641817cbb76aae6616f7f6cc22aa34a1f40a56442dffe7036d5afa1c346f4",
+      "containsC": false
+    },
+    {
+      "sequence": 84,
+      "elapsedMs": 265353,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "557cc293",
+      "provenance": "parent-task-forwarder",
+      "method": "chat.postMessage",
+      "phase": "response",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279457.213529",
+      "requestDigest": "9e7641817cbb76aae6616f7f6cc22aa34a1f40a56442dffe7036d5afa1c346f4",
+      "status": 200,
+      "ok": true,
+      "containsC": false
+    },
+    {
+      "sequence": 85,
+      "elapsedMs": 275639,
+      "kind": "c-gate-released",
+      "cell": "557cc293"
+    },
+    {
+      "sequence": 86,
+      "elapsedMs": 275639,
+      "kind": "late-c-dispatch-attempt",
+      "cell": "557cc293"
+    },
+    {
+      "sequence": 87,
+      "elapsedMs": 275639,
+      "kind": "late-c-dispatch-settled",
+      "cell": "557cc293",
+      "receipt": {
+        "counts": {
+          "tool": {
+            "delivered": 0,
+            "deliveredNotVisible": 0,
+            "cancelled": 0,
+            "failedBeforeSend": 0,
+            "failedAfterSend": 0
+          },
+          "block": {
+            "delivered": 1,
+            "deliveredNotVisible": 0,
+            "cancelled": 0,
+            "failedBeforeSend": 0,
+            "failedAfterSend": 0
+          },
+          "final": {
+            "delivered": 0,
+            "deliveredNotVisible": 1,
+            "cancelled": 0,
+            "failedBeforeSend": 0,
+            "failedAfterSend": 0
+          }
+        },
+        "anyVisibleDelivered": true
+      }
+    },
+    {
+      "sequence": 88,
+      "elapsedMs": 275640,
+      "kind": "deterministic-driver-settled",
+      "cell": "557cc293"
+    },
+    {
+      "sequence": 89,
+      "elapsedMs": 275643,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "557cc293",
+      "provenance": "parent-task-forwarder",
+      "method": "agents.sessions.setStatus",
+      "phase": "request",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279457.213529",
+      "requestDigest": "26c41a2bc007c993ba79181aeaab4c1303a49237812def9fce1ffdadc61b28ce",
+      "containsC": false
+    },
+    {
+      "sequence": 90,
+      "elapsedMs": 275643,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "557cc293",
+      "provenance": "parent-task-forwarder",
+      "method": "agents.sessions.setStatus",
+      "phase": "forwarded",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279457.213529",
+      "requestDigest": "26c41a2bc007c993ba79181aeaab4c1303a49237812def9fce1ffdadc61b28ce",
+      "containsC": false
+    },
+    {
+      "sequence": 91,
+      "elapsedMs": 275903,
+      "kind": "external-forwarder-wire-receipt",
+      "cell": "557cc293",
+      "provenance": "parent-task-forwarder",
+      "method": "agents.sessions.setStatus",
+      "phase": "response",
+      "channel": "D0C6Z352KD4",
+      "threadTs": "1791279457.213529",
+      "requestDigest": "26c41a2bc007c993ba79181aeaab4c1303a49237812def9fce1ffdadc61b28ce",
+      "status": 200,
+      "ok": true,
+      "containsC": false
+    }
+  ],
+  "providerReadback": [
+    {
+      "cell": "21a8a468",
+      "threadTs": "1791279276.655369",
+      "pages": 1,
+      "paginationComplete": true,
+      "messageCount": 5,
+      "hasA": true,
+      "hasB": true,
+      "hasC": false,
+      "messages": [
+        {
+          "ts": "1791279276.655369",
+          "thread_ts": "1791279276.655369",
+          "text": "PR163511_THREAD_PROOF_SEALING_20261006",
+          "blocks": [
+            {
+              "type": "rich_text",
+              "block_id": "ZjBAq",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "PR163511_THREAD_PROOF_SEALING_20261006"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ts": "1791279300.303289",
+          "thread_ts": "1791279276.655369",
+          "text": "PR163511_START_21a8a468",
+          "blocks": [
+            {
+              "type": "rich_text",
+              "block_id": "Iz8FO",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "PR163511_START_21a8a468"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ts": "1791279308.580329",
+          "thread_ts": "1791279276.655369",
+          "text": "PR163511_VISIBLE_A_21a8a468: deterministic source-path proof. Waiting for an actual human reply and Slack native Stop.",
+          "blocks": [
+            {
+              "type": "rich_text",
+              "block_id": "tIKkme",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "PR163511_VISIBLE_A_21a8a468: deterministic source-path proof. Waiting for an actual human reply and Slack native Stop."
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "streaming_state": "completed"
+        },
+        {
+          "ts": "1791279374.878939",
+          "thread_ts": "1791279276.655369",
+          "text": "PR163511_HUMAN_B_21a8a468",
+          "blocks": [
+            {
+              "type": "rich_text",
+              "block_id": "z9f9h",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "PR163511_HUMAN_B_21a8a468"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ts": "1791279408.708369",
+          "thread_ts": "1791279276.655369",
+          "text": ":gear: Agent was aborted.",
+          "blocks": [
+            {
+              "type": "rich_text",
+              "block_id": "Ug2v",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "emoji",
+                      "name": "gear",
+                      "unicode": "2699-fe0f"
+                    },
+                    {
+                      "type": "text",
+                      "text": " Agent was aborted."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cell": "557cc293",
+      "threadTs": "1791279457.213529",
+      "pages": 1,
+      "paginationComplete": true,
+      "messageCount": 5,
+      "hasA": true,
+      "hasB": true,
+      "hasC": false,
+      "messages": [
+        {
+          "ts": "1791279457.213529",
+          "thread_ts": "1791279457.213529",
+          "text": "PR163511_THREAD_PROOF_BEFORE_20261006",
+          "blocks": [
+            {
+              "type": "rich_text",
+              "block_id": "rnNwc",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "PR163511_THREAD_PROOF_BEFORE_20261006"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ts": "1791279473.690219",
+          "thread_ts": "1791279457.213529",
+          "text": "PR163511_START_557cc293",
+          "blocks": [
+            {
+              "type": "rich_text",
+              "block_id": "lj4O5",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "PR163511_START_557cc293"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ts": "1791279485.819219",
+          "thread_ts": "1791279457.213529",
+          "text": "PR163511_VISIBLE_A_557cc293: deterministic source-path proof. Waiting for an actual human reply and Slack native Stop.",
+          "blocks": [
+            {
+              "type": "rich_text",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "PR163511_VISIBLE_A_557cc293: deterministic source-path proof. Waiting for an actual human reply and Slack native Stop."
+                    }
+                  ]
+                }
+              ],
+              "block_id": "SZi7Zq"
+            }
+          ],
+          "streaming_state": "in_progress"
+        },
+        {
+          "ts": "1791279504.824329",
+          "thread_ts": "1791279457.213529",
+          "text": "PR163511_HUMAN_B_557cc293",
+          "blocks": [
+            {
+              "type": "rich_text",
+              "block_id": "LmnGn",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "PR163511_HUMAN_B_557cc293"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "ts": "1791279506.796259",
+          "thread_ts": "1791279457.213529",
+          "text": ":gear: Agent was aborted.",
+          "blocks": [
+            {
+              "type": "rich_text",
+              "block_id": "OWV",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "emoji",
+                      "name": "gear",
+                      "unicode": "2699-fe0f"
+                    },
+                    {
+                      "type": "text",
+                      "text": " Agent was aborted."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "no live-model cancellation proof",
+    "seal held before upstream forwarding, not during Slack backend processing",
+    "one task-owner agents.sessions.setStatus(processing) refresh in sealing cell to keep native Stop UI available after browser delay",
+    "earlier top-level-start/threaded-B setup attempts are excluded"
+  ],
+  "sourceAdmission": {
+    "sequence": 1,
+    "elapsedMs": 420,
+    "kind": "source-admission",
+    "sourceSha": "51c771ef3d6c6047e12a1fbb2b1515515abaf753",
+    "node": "v24.19.0",
+    "sourceFiles": {
+      "extensions/slack/src/monitor/provider.ts": "be46f58280211a4cd8541b0481d807d01dd088396feeb8dec1e72451fdecbf0f",
+      "extensions/slack/src/monitor/events/agent.ts": "efc55a0682f027de37295511dee978cd61e2e3739739452b936569db310dbd1f",
+      "extensions/slack/src/monitor/events/messages.ts": "9a75410d34bc21655c75fda6973024a0467dd62c92dcd09bc958cb227402c27e",
+      "extensions/slack/src/monitor/message-handler/dispatch.ts": "b5e24cd1b904f53b9e50f24b2669cd3dd9d8b0820855bf19bfa28d023eaf7578",
+      "extensions/slack/src/monitor/message-handler/dispatch-streaming.ts": "17eb370e784ad58448d83a3b6051fb5286488cc53673c7c1ed708380b592c543",
+      "extensions/slack/src/streaming.ts": "cab3fffbfda13d9129a591649e5692af2990cc644743b8189f9915b5c01864a4",
+      "src/auto-reply/reply/commands-session-abort.ts": "e006531001d1ebda212844641225e2966113b1eb7c107b201fee16ac1b103fb9",
+      "src/plugins/registry-runtime.ts": "e91c1db7e5ab3998f51d9796eb07d54b35f00df86580587328db9f2d6795ea76"
+    },
+    "scope": "real-Slack-native-Stop-deterministic-channel-output",
+    "stateIsolated": true
+  }
+}
