@@ -2,13 +2,14 @@ import { describe, expect, it, onTestFinished, vi } from "vitest";
 import type { AssistantMessage } from "../llm/types.js";
 import { createStubSessionHarness } from "./embedded-agent-subscribe.e2e-harness.js";
 import { subscribeEmbeddedAgentSession } from "./embedded-agent-subscribe.js";
+import { makeAgentAssistantMessage } from "./test-helpers/agent-message-fixtures.js";
 
 function ollamaAssistant(text: string, extra?: AssistantMessage["content"]): AssistantMessage {
-  return {
-    role: "assistant",
+  return makeAgentAssistantMessage({
     api: "ollama",
+    provider: "ollama",
     content: [{ type: "text", text }, ...(extra ?? [])],
-  } as unknown as AssistantMessage;
+  });
 }
 
 function commentarySignature(id: string, text: string): AssistantMessage["content"][number] {
@@ -16,11 +17,7 @@ function commentarySignature(id: string, text: string): AssistantMessage["conten
     type: "text",
     text,
     textSignature: JSON.stringify({ v: 1, id, phase: "commentary" }),
-  } as unknown as AssistantMessage["content"][number];
-}
-
-function postedText(onBlockReply: ReturnType<typeof vi.fn>): string {
-  return onBlockReply.mock.calls.map((call) => call[0]?.text ?? "").join(" ");
+  };
 }
 
 describe("native Ollama pre-tool narration", () => {
@@ -28,7 +25,7 @@ describe("native Ollama pre-tool narration", () => {
     const { session, emit } = createStubSessionHarness();
     const onBlockReply = vi.fn();
     const subscription = subscribeEmbeddedAgentSession({
-      session: session as unknown as Parameters<typeof subscribeEmbeddedAgentSession>[0]["session"],
+      session,
       runId: "run-ollama-withhold",
       onBlockReply,
       blockReplyBreak: "text_end",
@@ -148,62 +145,50 @@ describe("native Ollama pre-tool narration", () => {
     expect(onBlockReply.mock.calls[0]?.[0]).toMatchObject({ text: answer });
   });
 
-  it("delivers a permanent unphased Ollama answer as the final reply", async () => {
-    const { session, emit } = createStubSessionHarness();
-    const onBlockReply = vi.fn();
-    const subscription = subscribeEmbeddedAgentSession({
-      session: session as unknown as Parameters<typeof subscribeEmbeddedAgentSession>[0]["session"],
-      runId: "run-ollama-answer",
-      onBlockReply,
-      blockReplyBreak: "text_end",
-      blockReplyChunking: { minChars: 4, maxChars: 200 },
-    });
-
-    emit({ type: "message_start", message: ollamaAssistant("") });
-    emit({
-      type: "message_update",
-      message: ollamaAssistant("prefix "),
-      assistantMessageEvent: { type: "text_delta", delta: "prefix " },
-    });
-    emit({
-      type: "message_update",
-      message: ollamaAssistant("prefix suffix"),
-      assistantMessageEvent: { type: "text_end", contentIndex: 0, delta: "suffix" },
-    });
-    emit({ type: "message_end", message: ollamaAssistant("prefix suffix") });
-
-    await subscription.waitForPendingEvents();
-    expect(postedText(onBlockReply)).toContain("prefix suffix");
-  });
-
-  it("delivers length-limited Ollama output without treating it as commentary", async () => {
-    const { session, emit } = createStubSessionHarness();
-    const onBlockReply = vi.fn();
-    const subscription = subscribeEmbeddedAgentSession({
-      session: session as unknown as Parameters<typeof subscribeEmbeddedAgentSession>[0]["session"],
-      runId: "run-ollama-length",
-      onBlockReply,
-      blockReplyBreak: "text_end",
-      blockReplyChunking: { minChars: 4, maxChars: 200 },
-    });
-
-    emit({ type: "message_start", message: ollamaAssistant("") });
-    emit({
-      type: "message_update",
-      message: ollamaAssistant("Partial answer"),
-      assistantMessageEvent: { type: "text_delta", delta: "Partial answer" },
-    });
-    emit({
-      type: "message_end",
-      message: {
-        role: "assistant",
-        api: "ollama",
-        stopReason: "length",
-        content: [{ type: "text", text: "Partial answer" }],
-      } as unknown as AssistantMessage,
-    });
-
-    await subscription.waitForPendingEvents();
-    expect(postedText(onBlockReply)).toContain("Partial answer");
-  });
+  it.each(["stop", "length"] as const)(
+    "delivers unphased text before reasoning exactly once at %s",
+    async (stopReason) => {
+      const { session, emit } = createStubSessionHarness();
+      const onBlockReply = vi.fn();
+      const subscription = subscribeEmbeddedAgentSession({
+        session,
+        runId: "run-ollama-answer",
+        onBlockReply,
+        blockReplyBreak: "text_end",
+        blockReplyChunking: { minChars: 4, maxChars: 200 },
+      });
+      onTestFinished(() => subscription.unsubscribe());
+      const answer = "Visible answer";
+      emit({ type: "message_start", message: ollamaAssistant("") });
+      emit({
+        type: "message_update",
+        message: ollamaAssistant(answer),
+        assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: answer },
+      });
+      const finalMessage = {
+        ...ollamaAssistant(answer),
+        content: [
+          { type: "thinking" as const, thinking: "Late reasoning" },
+          { type: "text" as const, text: answer },
+        ],
+        stopReason,
+      };
+      emit({
+        type: "message_update",
+        message: finalMessage,
+        assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta: "Late reasoning" },
+      });
+      emit({
+        type: "message_update",
+        message: finalMessage,
+        assistantMessageEvent: { type: "text_end", contentIndex: 1, content: answer },
+      });
+      await subscription.waitForPendingEvents();
+      expect(onBlockReply).not.toHaveBeenCalled();
+      emit({ type: "message_end", message: finalMessage });
+      await subscription.waitForPendingEvents();
+      expect(onBlockReply).toHaveBeenCalledTimes(1);
+      expect(onBlockReply.mock.calls[0]?.[0]).toMatchObject({ text: answer });
+    },
+  );
 });

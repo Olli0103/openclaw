@@ -21,8 +21,7 @@ import {
   emitAssistantMessageStart,
   emitReasoningEnd,
   hasMessageToolOnlySourceDelivery,
-  isAnthropicAssistantMessage,
-  isOllamaAssistantMessage,
+  isAssistantTextPhasePending,
   isOpenAiCompletionsAssistantMessage,
   isResponsesApiAssistantMessage,
   isSubscribeTranscriptOnlyOpenClawAssistantMessage,
@@ -190,13 +189,9 @@ export function handleMessageUpdate(
     isResponsesApiAssistantMessage(partialAssistant);
   // These transports resolve commentary only at the tool boundary. Withhold
   // early unphased deltas from durable block replies until that decision exists.
-  const isPhasePendingAnthropicText =
-    evtType !== "text_end" && !deliveryPhase && isAnthropicAssistantMessage(partialAssistant);
+  const isPhasePendingText =
+    !deliveryPhase && isAssistantTextPhasePending(partialAssistant, evtType);
   const isCompletionsAssistant = isOpenAiCompletionsAssistantMessage(partialAssistant);
-  const isPhasePendingCompletionsText = !deliveryPhase && isCompletionsAssistant;
-  // Native Ollama resolves commentary only at the tool boundary too; keep early
-  // unphased deltas out of durable block replies until that decision exists.
-  const isPhasePendingOllamaText = !deliveryPhase && isOllamaAssistantMessage(partialAssistant);
   const isReasoningCompletionsText =
     isCompletionsAssistant && partialAssistant.openclawDelivery?.textPhaseRequiresTerminal === true;
   const hasResponsesContentIndex =
@@ -517,11 +512,7 @@ export function handleMessageUpdate(
       (hasVisibleReply || replace) &&
       (replace ? cleanedText !== previousCleaned || hasAudio : Boolean(deltaText || hasAudio));
 
-    if (
-      !isPhasePendingAnthropicText &&
-      !isPhasePendingCompletionsText &&
-      !isPhasePendingOllamaText
-    ) {
+    if (!isPhasePendingText) {
       const plainAppend =
         evtType === "text_delta" &&
         unchangedBlockAppend &&
