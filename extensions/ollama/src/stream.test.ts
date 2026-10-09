@@ -215,9 +215,12 @@ describe("createOllamaStreamFn thinking events", () => {
       const done = events.find((event) => event.type === "done") as {
         message?: { content?: Array<{ type: string; text?: string; textSignature?: string }> };
       };
-      const text = expectDefined(done.message?.content?.find((block) => block.type === "text"));
+      const text = expectDefined(
+        done.message?.content?.find((block) => block.type === "text"),
+        "terminal Ollama text",
+      );
       expect(text.text).toBe(narration);
-      const signature = JSON.parse(expectDefined(text.textSignature));
+      const signature = JSON.parse(expectDefined(text.textSignature, "commentary signature"));
       expect(signature).toMatchObject({ v: 1, id: expect.any(String), phase: "commentary" });
       signatures.push(signature.id);
     }
