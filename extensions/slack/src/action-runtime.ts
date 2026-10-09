@@ -57,6 +57,15 @@ const reactionsActions = new Set(["react", "reactions"]);
 const pinActions = new Set(["pinMessage", "unpinMessage", "listPins"]);
 const SLACK_REACTION_RESULT_LIMIT = 100;
 
+function readSlackResultLimit(params: Record<string, unknown>) {
+  return Math.min(
+    readPositiveIntegerParam(params, "limit", {
+      message: "limit must be a positive integer.",
+    }) ?? SLACK_REACTION_RESULT_LIMIT,
+    SLACK_REACTION_RESULT_LIMIT,
+  );
+}
+
 const loadSlackActionsRuntime = createLazyRuntimeModule(() => import("./actions.js"));
 const bindSlackAction = createLazyRuntimeMethodBinder(loadSlackActionsRuntime);
 
@@ -79,11 +88,9 @@ export const slackActionRuntime = {
   readSlackMessages: bindSlackAction((runtime) => runtime.readSlackMessages),
   removeOwnSlackReactions: bindSlackAction((runtime) => runtime.removeOwnSlackReactions),
   removeSlackReaction: bindSlackAction((runtime) => runtime.removeSlackReaction),
-  resolveSlackConversationName: bindSlackAction((runtime) => runtime.resolveSlackConversationName),
   resolveSlackConversationInfo: bindSlackChannelType(
     (runtime) => runtime.resolveSlackConversationInfo,
   ),
-  resolveSlackChannelType: bindSlackChannelType((runtime) => runtime.resolveSlackChannelType),
   sendSlackMessage: bindSlackAction((runtime) => runtime.sendSlackMessage),
   unpinSlackMessage: bindSlackAction((runtime) => runtime.unpinSlackMessage),
 };
@@ -571,12 +578,7 @@ export async function handleSlackAction(
       return jsonResult({ ok: true, added: emoji });
     }
     await assertReadTargetAllowed(target);
-    const limit = Math.min(
-      readPositiveIntegerParam(params, "limit", {
-        message: "limit must be a positive integer.",
-      }) ?? SLACK_REACTION_RESULT_LIMIT,
-      SLACK_REACTION_RESULT_LIMIT,
-    );
+    const limit = readSlackResultLimit(params);
     const reactions = await slackActionRuntime.listSlackReactions(channelId, messageId, readOpts);
     return jsonResult({
       ok: true,
@@ -953,12 +955,7 @@ export async function handleSlackAction(
     if (!isActionEnabled("emojiList")) {
       throw new Error("Slack emoji list is disabled.");
     }
-    const limit = Math.min(
-      readPositiveIntegerParam(params, "limit", {
-        message: "limit must be a positive integer.",
-      }) ?? SLACK_REACTION_RESULT_LIMIT,
-      SLACK_REACTION_RESULT_LIMIT,
-    );
+    const limit = readSlackResultLimit(params);
     const teamId = resolveTrustedCurrentSlackTeamId({ account, context });
     assertSlackDetachedTargetAllowed(account.accountId, teamId);
     const result = await slackActionRuntime.listSlackEmojis(buildActionOpts("read", teamId));

@@ -18,16 +18,15 @@ import { resolveStorePath, updateLastRoute } from "openclaw/plugin-sdk/session-s
 import { normalizeOptionalLowercaseString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { reactSlackMessage, removeSlackReaction } from "../../actions.js";
 import { formatSlackError } from "../../errors.js";
+import { hasSlackMessageIdentity } from "../../post-message-identity.js";
 import { resolveSlackStreamingConfig } from "../../stream-mode.js";
 import { resolveSlackThreadContext } from "../../threading.js";
 import { normalizeSlackAllowOwnerEntry } from "../allow-list.js";
 import { createSlackReplyDeliveryPlan, sanitizeSlackMonitorReplyPayload } from "../replies.js";
 import {
   isSlackStreamingEnabled,
-  resolveSlackDisableBlockStreaming,
   resolveSlackNativeProgressTaskCards,
   resolveSlackProgressStyle,
-  shouldUseStreaming,
 } from "./dispatch-helpers.js";
 import type { PreparedSlackMessage } from "./types.js";
 
@@ -96,7 +95,6 @@ export async function createSlackDispatchSetup(prepared: PreparedSlackMessage) {
     replyToMode: prepared.replyToMode,
   });
   const forcedReplyThreadTs = prepared.forcedReplyThreadTs;
-  const slackMessageMetadata = prepared.slackMessageMetadata;
   const statusThreadTs = forcedReplyThreadTs ?? threadContext.messageThreadId;
   const isThreadReply = threadContext.isThreadReply;
   const replyDeliveryMode = forcedReplyThreadTs ? "off" : prepared.replyToMode;
@@ -116,11 +114,6 @@ export async function createSlackDispatchSetup(prepared: PreparedSlackMessage) {
     isGroup: prepared.isRoomish,
     groupId: prepared.isRoomish ? message.channel : undefined,
   };
-  const messageSentDeliveryHookContext = {
-    ...messageSentHookContext,
-    messageSentHookTarget,
-  };
-
   const reactionMessageTs = prepared.ackReactionMessageTs;
   const messageTs = message.ts ?? message.event_ts;
   const incomingThreadTs = message.thread_ts;
@@ -286,9 +279,7 @@ export async function createSlackDispatchSetup(prepared: PreparedSlackMessage) {
     !sourceRepliesAreToolOnly &&
     !quietProgress &&
     slackStreaming.mode !== "off";
-  const hasSlackCustomIdentity = Boolean(
-    slackIdentity?.username || slackIdentity?.iconUrl || slackIdentity?.iconEmoji,
-  );
+  const hasSlackCustomIdentity = hasSlackMessageIdentity(slackIdentity);
   const streamingEnabled =
     !prepared.ctxPayload.GroupThread &&
     !sourceRepliesAreToolOnly &&
@@ -301,35 +292,27 @@ export async function createSlackDispatchSetup(prepared: PreparedSlackMessage) {
         slackProgressStyle,
       ),
     });
-  const useStreaming = shouldUseStreaming({
-    streamingEnabled,
-    threadTs: streamThreadHint,
-  });
+  const useStreaming = streamingEnabled && Boolean(streamThreadHint);
+  if (streamingEnabled && !streamThreadHint) {
+    logVerbose("slack-stream: streaming disabled — no reply thread target available");
+  }
   const shouldUseDraftStream = previewStreamingEnabled && !useStreaming;
   const blockStreamingEnabled = resolveChannelStreamingBlockEnabled(account.config);
   const disableBlockStreaming =
-    sourceRepliesAreToolOnly || quietProgress
+    sourceRepliesAreToolOnly || quietProgress || useStreaming || shouldUseDraftStream
       ? true
-      : resolveSlackDisableBlockStreaming({
-          useStreaming,
-          shouldUseDraftStream,
-          blockStreamingEnabled,
-        });
+      : typeof blockStreamingEnabled === "boolean"
+        ? !blockStreamingEnabled
+        : undefined;
 
   return {
     prepared,
-    ctx,
-    account,
-    message,
-    route,
     slackClient,
     slackClientOptions,
     slackStreamFallbackTeamId,
     cfg,
     runtime,
     slackIdentity,
-    forcedReplyThreadTs,
-    slackMessageMetadata,
     statusThreadTs,
     isThreadReply,
     replyDeliveryMode,
@@ -337,7 +320,6 @@ export async function createSlackDispatchSetup(prepared: PreparedSlackMessage) {
     suppressRoomEventTyping,
     messageSentHookTarget,
     messageSentHookContext,
-    messageSentDeliveryHookContext,
     statusReactionsEnabled,
     statusReactions,
     hasRepliedRef,
