@@ -6,8 +6,10 @@ import {
   noteMemorySearchHealth,
 } from "./doctor-memory-search.js";
 
+// mock-isolation: capture Doctor notes without writing to the interactive terminal.
 vi.mock("../../packages/terminal-core/src/note.js", () => ({ note: vi.fn() }));
 
+// mock-isolation: select the built-in backend without activating real plugin runtimes.
 vi.mock("../plugins/memory-runtime.js", () => ({
   resolveActiveMemoryBackendConfig: () => ({ backend: "builtin" }),
 }));

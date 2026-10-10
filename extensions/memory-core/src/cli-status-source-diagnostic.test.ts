@@ -12,6 +12,7 @@ const resolveCommandSecretRefsViaGateway = vi.hoisted(() =>
   vi.fn(async ({ config }: { config: unknown }) => ({ resolvedConfig: config, diagnostics: [] })),
 );
 
+// mock-isolation: exercise CLI diagnostics without opening a native SQLite memory manager.
 vi.mock("./memory/index.js", () => ({ getMemorySearchManager }));
 vi.mock("openclaw/plugin-sdk/memory-core-host-runtime-core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("openclaw/plugin-sdk/memory-core-host-runtime-core")>()),
