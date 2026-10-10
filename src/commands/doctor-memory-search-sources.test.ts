@@ -1,6 +1,12 @@
 import { expect, it, vi } from "vitest";
-import type { OpenClawConfig } from "../config/config.js";
-import { collectMemorySearchHealthFindings } from "./doctor-memory-search.js";
+import { note } from "../../packages/terminal-core/src/note.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
+import {
+  collectMemorySearchHealthFindings,
+  noteMemorySearchHealth,
+} from "./doctor-memory-search.js";
+
+vi.mock("../../packages/terminal-core/src/note.js", () => ({ note: vi.fn() }));
 
 vi.mock("../plugins/memory-runtime.js", () => ({
   resolveActiveMemoryBackendConfig: () => ({ backend: "builtin" }),
@@ -8,7 +14,7 @@ vi.mock("../plugins/memory-runtime.js", () => ({
 
 function config(sessionMemory: boolean): OpenClawConfig {
   return {
-    agents: { list: [{ id: "main", default: true }] },
+    agents: { entries: { main: {} } },
     memory: {
       search: {
         provider: "none",
@@ -29,20 +35,24 @@ async function findings(cfg: OpenClawConfig) {
   });
 }
 
-it("names the missing session-indexing prerequisite in Doctor", async () => {
-  const result = await findings(config(false));
-
-  expect(result).toContainEqual(
-    expect.objectContaining({
-      severity: "warning",
-      path: "memory.search.sources",
-      message: expect.stringContaining('requests the "sessions" source'),
-    }),
-  );
-  expect(result[0]?.message).toContain("memory.search.experimental.sessionMemory");
-  expect(result[0]?.message).toContain("memory.search.rememberAcrossConversations");
-});
-
-it("does not warn when session indexing is enabled", async () => {
-  expect(await findings(config(true))).toEqual([]);
-});
+it.each([false, true])(
+  "explains excluded sources without failing lint (sessionMemory=%s)",
+  async (sessionMemory) => {
+    const cfg = config(sessionMemory);
+    vi.mocked(note).mockClear();
+    await noteMemorySearchHealth(cfg, { includeWorkspaceMemoryHealth: false });
+    if (sessionMemory) {
+      expect(note).not.toHaveBeenCalled();
+    } else {
+      expect(note).toHaveBeenCalledWith(
+        expect.stringContaining('requests the "sessions" source'),
+        "Memory search",
+      );
+      expect(note).toHaveBeenCalledWith(
+        expect.stringContaining("memory.search.experimental.sessionMemory"),
+        "Memory search",
+      );
+    }
+    expect(await findings(cfg)).toEqual([]);
+  },
+);

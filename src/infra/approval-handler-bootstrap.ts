@@ -1,4 +1,5 @@
 // Bootstraps approval handlers from channel plugin capabilities.
+import { randomUUID } from "node:crypto";
 import { resolveChannelApprovalCapability } from "../channels/plugins/approvals.js";
 import type { ChannelRuntimeSurface } from "../channels/plugins/channel-runtime-surface.types.js";
 import type { ChannelPlugin } from "../channels/plugins/types.plugin.js";
@@ -16,6 +17,7 @@ import {
   watchChannelRuntimeContexts,
 } from "./channel-runtime-context.js";
 import { isExecApprovalChannelRuntimeTerminalStartError } from "./exec-approval-channel-runtime.js";
+import type { GatewayScheduledJob, GatewayScheduler } from "./gateway-scheduler.js";
 
 const APPROVAL_HANDLER_BOOTSTRAP_RETRY_MS = 1_000;
 
@@ -43,6 +45,7 @@ function formatRetryableApprovalBootstrapStartError(error: unknown): string {
 
 /** Starts the native approval handler for a channel runtime context and returns its cleanup hook. */
 export async function startChannelApprovalHandlerBootstrap(params: {
+  scheduler: GatewayScheduler;
   plugin: Pick<ChannelPlugin, "id" | "meta" | "approvalCapability">;
   cfg: OpenClawConfig;
   accountId: string;
@@ -57,18 +60,14 @@ export async function startChannelApprovalHandlerBootstrap(params: {
 
   const channelLabel = params.plugin.meta.label || params.plugin.id;
   const logger = params.logger ?? createSubsystemLogger(`${params.plugin.id}/approval-bootstrap`);
+  const retryId = `approval-bootstrap/${params.plugin.id}/${params.accountId}/${randomUUID()}`;
   let activeGeneration = 0;
   let activeHandler: ChannelApprovalHandler | null = null;
-  let retryTimer: NodeJS.Timeout | null = null;
+  let retryJob: GatewayScheduledJob | undefined;
   const invalidateActiveHandler = () => {
+    retryJob?.cancel();
+    retryJob = undefined;
     activeGeneration += 1;
-  };
-  const clearRetryTimer = () => {
-    if (!retryTimer) {
-      return;
-    }
-    clearTimeout(retryTimer);
-    retryTimer = null;
   };
 
   const stopHandler = async () => {
@@ -129,18 +128,11 @@ export async function startChannelApprovalHandlerBootstrap(params: {
     if (generation !== activeGeneration) {
       return;
     }
-    clearRetryTimer();
-    retryTimer = setTimeout(() => {
-      retryTimer = null;
-      if (generation !== activeGeneration) {
-        return;
-      }
-      spawn(
-        "failed to retry native approval handler",
-        startHandlerForRegisteredContext(context, generation),
-      );
-    }, APPROVAL_HANDLER_BOOTSTRAP_RETRY_MS);
-    retryTimer.unref?.();
+    retryJob = params.scheduler.schedule({
+      id: retryId,
+      delayMs: APPROVAL_HANDLER_BOOTSTRAP_RETRY_MS,
+      run: () => startHandlerForRegisteredContext(context, generation),
+    });
   };
   const startHandlerForRegisteredContext = async (context: unknown, generation: number) => {
     try {
@@ -155,13 +147,20 @@ export async function startChannelApprovalHandlerBootstrap(params: {
           logger.warn(
             `native approval handler deferred until gateway readiness recovers: ${formatRetryableApprovalBootstrapStartError(error)}`,
           );
-          scheduleRetryForContext(context, generation);
-          return;
+        } else {
+          logger.error(`failed to start native approval handler: ${String(error)}`);
         }
-        logger.error(`failed to start native approval handler: ${String(error)}`);
         scheduleRetryForContext(context, generation);
       }
     }
+  };
+
+  const startForContext = (context: unknown) => {
+    invalidateActiveHandler();
+    spawn(
+      "failed to start native approval handler",
+      startHandlerForRegisteredContext(context, activeGeneration),
+    );
   };
 
   const unsubscribe =
@@ -172,16 +171,9 @@ export async function startChannelApprovalHandlerBootstrap(params: {
       capability: CHANNEL_APPROVAL_NATIVE_RUNTIME_CONTEXT_CAPABILITY,
       onEvent: (event) => {
         if (event.type === "registered") {
-          clearRetryTimer();
-          invalidateActiveHandler();
-          const generation = activeGeneration;
-          spawn(
-            "failed to start native approval handler",
-            startHandlerForRegisteredContext(event.context, generation),
-          );
+          startForContext(event.context);
           return;
         }
-        clearRetryTimer();
         invalidateActiveHandler();
         spawn("failed to stop native approval handler", stopHandler());
       },
@@ -194,18 +186,11 @@ export async function startChannelApprovalHandlerBootstrap(params: {
     capability: CHANNEL_APPROVAL_NATIVE_RUNTIME_CONTEXT_CAPABILITY,
   });
   if (existingContext !== undefined) {
-    clearRetryTimer();
-    invalidateActiveHandler();
-    const generation = activeGeneration;
-    spawn(
-      "failed to start native approval handler",
-      startHandlerForRegisteredContext(existingContext, generation),
-    );
+    startForContext(existingContext);
   }
 
   return async () => {
     unsubscribe();
-    clearRetryTimer();
     invalidateActiveHandler();
     await stopHandler();
   };

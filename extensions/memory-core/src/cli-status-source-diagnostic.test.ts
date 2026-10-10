@@ -26,7 +26,7 @@ import { defaultRuntime } from "openclaw/plugin-sdk/memory-core-host-runtime-cli
 import { registerMemoryCli } from "./cli.js";
 
 const cfg = {
-  agents: { list: [{ id: "main", default: true }] },
+  agents: { entries: { main: {} } },
   memory: {
     search: {
       provider: "none",

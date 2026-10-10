@@ -7,7 +7,9 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { GatewayActiveWorkInspectors } from "../infra/gateway-active-work.js";
 import type { GatewayScheduler } from "../infra/gateway-scheduler.js";
 import type { PluginRegistry } from "../plugins/registry-types.js";
+import { withPluginRuntimeGatewayContextResolver } from "../plugins/runtime/gateway-request-scope.js";
 import type { GatewayDiscovery } from "./server-discovery-runtime.js";
+import type { GatewayContextResolver } from "./server-methods/types.js";
 import type { GatewayPluginRuntimeClaim } from "./server-plugin-runtime-generation.js";
 import { measureStartup, type GatewayStartupTrace } from "./server-startup-trace.js";
 
@@ -41,25 +43,17 @@ export async function startGatewayEarlyRuntime(params: {
   pluginRegistry?: PluginRegistry;
   pluginRuntimeClaim: GatewayPluginRuntimeClaim;
   broadcast: GatewayMaintenanceParams["broadcast"];
-  nodeSendToAllSubscribed: Parameters<StartGatewayMaintenanceTimers>[0]["nodeSendToAllSubscribed"];
-  getPresenceVersion: GatewayMaintenanceParams["getPresenceVersion"];
-  getHealthVersion: GatewayMaintenanceParams["getHealthVersion"];
-  refreshGatewayHealthSnapshot: GatewayMaintenanceParams["refreshGatewayHealthSnapshot"];
-  restartRunningChannels: GatewayMaintenanceParams["restartRunningChannels"];
-  refreshPresence: GatewayMaintenanceParams["refreshPresence"];
-  resetEventLoopHealth: GatewayMaintenanceParams["resetEventLoopHealth"];
-  logHealth: GatewayMaintenanceParams["logHealth"];
-  dedupe: GatewayMaintenanceParams["dedupe"];
-  chatAbortControllers: GatewayMaintenanceParams["chatAbortControllers"];
-  chatQueuedTurns: GatewayMaintenanceParams["chatQueuedTurns"];
-  restartRecoveryCandidates: GatewayMaintenanceParams["restartRecoveryCandidates"];
-  chatRunState: GatewayMaintenanceParams["chatRunState"];
-  removeChatRun: GatewayMaintenanceParams["removeChatRun"];
-  agentRunSeq: GatewayMaintenanceParams["agentRunSeq"];
-  nodeSendToSession: GatewayMaintenanceParams["nodeSendToSession"];
-  skillsRefreshDelayMs: number;
-  getSkillsRefreshTimer: () => ReturnType<typeof setTimeout> | null;
-  setSkillsRefreshTimer: (timer: ReturnType<typeof setTimeout> | null) => void;
+  maintenance: Omit<
+    GatewayMaintenanceParams,
+    | "scheduler"
+    | "broadcast"
+    | "getRuntimeConfig"
+    | "activeWorkInspectors"
+    | "isNixMode"
+    | "runWorktreeGc"
+    | "runDeliveryQueueMediaGc"
+    | "runManagedOutgoingMediaGc"
+  >;
   getRuntimeConfig: () => OpenClawConfig;
   startupTrace?: GatewayStartupTrace;
 }) {
@@ -116,6 +110,9 @@ export async function startGatewayEarlyRuntime(params: {
         const { closeSkillsWatchers, registerSkillsChangeListener } = await skillsRuntimePromise;
         const { refreshRemoteBinsForConnectedNodes } = await remoteSkillsRuntimePromise;
         const unregister = registerSkillsChangeListener((event) => {
+          if (params.isClosing()) {
+            return;
+          }
           if (event.reason === "watch-available") {
             // Coverage recovery has no new content revision to probe or broadcast.
             return;
@@ -128,25 +125,25 @@ export async function startGatewayEarlyRuntime(params: {
           }
           // Coalesce local skill changes before refreshing connected remote
           // nodes so bulk plugin/skill updates do not stampede node refreshes.
-          const existingTimer = params.getSkillsRefreshTimer();
-          if (existingTimer) {
-            clearTimeout(existingTimer);
-          }
-          const nextTimer = setTimeout(() => {
-            params.setSkillsRefreshTimer(null);
-            void refreshRemoteBinsForConnectedNodes(params.getRuntimeConfig()).then(
-              () => {
-                params.broadcast("skills.changed", { reason: event.reason });
-              },
-              (error: unknown) => {
+          params.scheduler.schedule({
+            id: "skills.remote-bin-refresh",
+            delayMs: 30_000,
+            run: async () => {
+              if (params.isClosing()) {
+                return;
+              }
+              try {
+                await refreshRemoteBinsForConnectedNodes(params.getRuntimeConfig());
+              } catch (error) {
                 params.log.warn(
                   `failed to refresh remote bins after skills change: ${String(error)}`,
                 );
+              }
+              if (!params.isClosing()) {
                 params.broadcast("skills.changed", { reason: event.reason });
-              },
-            );
-          }, params.skillsRefreshDelayMs);
-          params.setSkillsRefreshTimer(nextTimer);
+              }
+            },
+          });
         });
         return async () => {
           unregister();
@@ -154,7 +151,10 @@ export async function startGatewayEarlyRuntime(params: {
         };
       });
 
-  const startMaintenance = async (activeWorkInspectors: Partial<GatewayActiveWorkInspectors>) => {
+  const startMaintenance = async (
+    activeWorkInspectors: Partial<GatewayActiveWorkInspectors>,
+    resolveGatewayContext?: GatewayContextResolver,
+  ) => {
     // Defer periodic maintenance until the caller has finished ready-state
     // wiring, but keep the lazy import owned by this early-runtime bundle.
     if (!startSideRuntimes || params.isClosing()) {
@@ -165,29 +165,19 @@ export async function startGatewayEarlyRuntime(params: {
       if (params.isClosing()) {
         return null;
       }
-      return startGatewayMaintenanceTimers({
-        scheduler: params.scheduler,
-        broadcast: params.broadcast,
-        nodeSendToAllSubscribed: params.nodeSendToAllSubscribed,
-        getPresenceVersion: params.getPresenceVersion,
-        getHealthVersion: params.getHealthVersion,
-        refreshGatewayHealthSnapshot: params.refreshGatewayHealthSnapshot,
-        restartRunningChannels: params.restartRunningChannels,
-        activeWorkInspectors,
-        refreshPresence: params.refreshPresence,
-        resetEventLoopHealth: params.resetEventLoopHealth,
-        logHealth: params.logHealth,
-        dedupe: params.dedupe,
-        chatAbortControllers: params.chatAbortControllers,
-        chatQueuedTurns: params.chatQueuedTurns,
-        restartRecoveryCandidates: params.restartRecoveryCandidates,
-        chatRunState: params.chatRunState,
-        removeChatRun: params.removeChatRun,
-        agentRunSeq: params.agentRunSeq,
-        nodeSendToSession: params.nodeSendToSession,
-        isNixMode,
-        getRuntimeConfig: params.getRuntimeConfig,
-      });
+      return withPluginRuntimeGatewayContextResolver(
+        resolveGatewayContext,
+        () =>
+          startGatewayMaintenanceTimers({
+            ...params.maintenance,
+            scheduler: params.scheduler,
+            broadcast: params.broadcast,
+            activeWorkInspectors,
+            isNixMode,
+            getRuntimeConfig: params.getRuntimeConfig,
+          }),
+        { inheritRequestScope: false },
+      );
     });
   };
 
